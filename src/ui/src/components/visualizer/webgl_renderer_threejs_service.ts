@@ -23,7 +23,6 @@ import * as three from 'three';
 import {ModelGraph} from './common/model_graph';
 import {Point, Rect} from './common/types';
 import {getHighQualityPixelRatio, IS_MAC} from './common/utils';
-import {VisualizerConfig} from './common/visualizer_config';
 import {ColorVariable} from './visualizer_theme_service';
 import {WebglRenderer} from './webgl_renderer';
 
@@ -56,11 +55,9 @@ export class WebglRendererThreejsService {
   private resizeTimeoutRef = -1;
   private fpsStartTime = -1;
   private frames = 0;
-  private config?: VisualizerConfig;
 
-  init(webglRenderer: WebglRenderer, config?: VisualizerConfig) {
+  init(webglRenderer: WebglRenderer) {
     this.webglRenderer = webglRenderer;
-    this.config = config;
   }
 
   setupZoomAndPan(
@@ -133,32 +130,32 @@ export class WebglRendererThreejsService {
       .wheelDelta(
         // This controls the speed of pinch-to-zoom (and zoom by
         // ctrl+scroll).
-        () => {
-          return (-d3.event.deltaY * (d3.event.deltaMode ? 120 : 1)) / 150;
+        (event: WheelEvent) => {
+          return (-event.deltaY * (event.deltaMode ? 120 : 1)) / 150;
         },
       )
-      .filter(() => {
-        if (d3.event.type === 'mousedown') {
+      .filter((event: MouseEvent | WheelEvent) => {
+        if (event.type === 'mousedown') {
           savedTranslateX = this.curTranslateX;
           savedTranslateY = this.curTranslateY;
         }
 
         // Ignore right click.
         if (
-          d3.event.button === 2 ||
+          event.button === 2 ||
           (IS_MAC &&
-            d3.event.ctrlKey &&
-            d3.event.button === 0 &&
-            d3.event.type === 'mousedown')
+            event.ctrlKey &&
+            event.button === 0 &&
+            event.type === 'mousedown')
         ) {
           return false;
         }
 
-        if (d3.event.type === 'dblclick') {
-          d3.event.stopPropagation();
+        if (event.type === 'dblclick') {
+          event.stopPropagation();
           this.webglRenderer.handleDoubleClickOnGraph(
-            d3.event.altKey,
-            d3.event.shiftKey,
+            event.altKey,
+            event.shiftKey,
           );
           return false;
         }
@@ -172,26 +169,27 @@ export class WebglRendererThreejsService {
         // Note that in d3.zoom, the way to check if zoom is being triggered
         // by scrolling is to check that its event type is 'wheel' and
         // ctrlKey is false.
-        if (d3.event.type === 'wheel' && !d3.event.ctrlKey) {
+        if (event.type === 'wheel' && !event.ctrlKey) {
+          const wheelEvent = event as WheelEvent;
           // Scale scrolling amount by the zoom level to make the experience
           // consistent at different zoom levels.
           const factor = 0.5 / this.curScale;
           this.zoom.translateBy(
             view,
-            -Number(d3.event.deltaX) * factor,
-            -Number(d3.event.deltaY) * factor,
+            -Number(wheelEvent.deltaX) * factor,
+            -Number(wheelEvent.deltaY) * factor,
           );
-          d3.event.preventDefault();
+          wheelEvent.preventDefault();
           return false;
         }
 
         return true;
       })
-      .on('zoom', () => {
-        this.handleZoom(svgTextRendererEle);
+      .on('zoom', (event) => {
+        this.handleZoom(event, svgTextRendererEle);
       })
-      .on('end', () => {
-        this.handleZoomEnd(savedTranslateX, savedTranslateY);
+      .on('end', (event) => {
+        this.handleZoomEnd(event, savedTranslateX, savedTranslateY);
       });
 
     // Use the regular interpolation instead of the default d3.zoomInterpolate
@@ -287,59 +285,12 @@ export class WebglRendererThreejsService {
     this.raycaster.params.Points!.threshold = 5.5;
   }
 
-  getTextureBackground(): three.CanvasTexture | null {
-    if (!this.webglRenderer.container) {
-      return null;
-    }
-
-    // Create a canvas for the texture.
-    const canvas = document.createElement('canvas');
-    canvas.width = 20;
-    canvas.height = 20;
-
-    const context = canvas.getContext('2d');
-    if (!context) {
-      return null;
-    }
-
-    // Draw the background color.
-    context.fillStyle = this.webglRenderer.visualizerThemeService.getColor(
-      ColorVariable.SURFACE_COLOR,
-    );
-    context.fillRect(0, 0, 20, 20);
-
-    // Draw the dot.
-    const dotColor = this.webglRenderer.visualizerThemeService.getColor(
-      ColorVariable.OUTLINE_HAIRLINE_COLOR,
-    );
-    context.fillStyle = dotColor;
-    context.beginPath();
-    context.arc(10, 10, 1, 0, 2 * Math.PI);
-    context.fill();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.LinearMipMapLinearFilter;
-
-    // Set the repeat based on the container size.
-    const container = this.webglRenderer.container.nativeElement;
-    texture.repeat.set(container.clientWidth / 20, container.clientHeight / 20);
-
-    return texture;
-  }
-
   updateSceneBackground() {
-    if (this.config?.enableBackgroundTexture) {
-      this.scene.background = this.getTextureBackground();
-    } else {
-      this.scene.background = new THREE.Color(
-        this.webglRenderer.visualizerThemeService.getColor(
-          ColorVariable.SURFACE_COLOR,
-        ),
-      );
-    }
+    this.scene.background = new THREE.Color(
+      this.webglRenderer.visualizerThemeService.getColor(
+        ColorVariable.SURFACE_COLOR,
+      ),
+    );
   }
 
   clearScene(objsToSkip: Array<three.Object3D | undefined> = []) {
@@ -406,6 +357,10 @@ export class WebglRendererThreejsService {
     if (useSvgTextRenderer) {
       this.webglRenderer.renderAll();
     }
+  }
+
+  setSceneBackground(color: three.Color) {
+    this.scene.background = color;
   }
 
   createOrthographicCamera(
@@ -721,11 +676,14 @@ export class WebglRendererThreejsService {
     this.zoom.translateBy(view, deltaX, deltaY);
   }
 
-  private handleZoom(svgTextRendererEle: HTMLElement | SVGElement) {
-    const transform = d3.event.transform;
-    this.curScale = d3.event.transform.k;
-    this.curTranslateX = d3.event.transform.x;
-    this.curTranslateY = d3.event.transform.y;
+  private handleZoom(
+    event: d3.D3ZoomEvent<Element, unknown>,
+    svgTextRendererEle: HTMLElement | SVGElement,
+  ) {
+    const transform = event.transform;
+    this.curScale = event.transform.k;
+    this.curTranslateX = event.transform.x;
+    this.curTranslateY = event.transform.y;
 
     requestAnimationFrame(() => {
       if (!this.camera) {
@@ -739,18 +697,25 @@ export class WebglRendererThreejsService {
       this.webglRenderer.handleHoveredGroupNodeIconChanged();
 
       const svgTextRendererEleSelect = d3.select(svgTextRendererEle);
-      svgTextRendererEleSelect.attr('transform', transform);
+      svgTextRendererEleSelect.attr('transform', transform.toString());
     });
   }
 
-  private handleZoomEnd(savedTranslateX: number, savedTranslateY: number) {
+  private handleZoomEnd(
+    event: d3.D3ZoomEvent<Element, unknown>,
+    savedTranslateX: number,
+    savedTranslateY: number,
+  ) {
     // Treat tiny amount of translation as clicking to improve user
     // experience.
-    if (d3.event.sourceEvent && d3.event.sourceEvent.type === 'mouseup') {
+    const sourceEvent = event.sourceEvent;
+    if (sourceEvent && sourceEvent.type === 'mouseup') {
       const deltaX = Math.abs(this.curTranslateX - savedTranslateX);
       const deltaY = Math.abs(this.curTranslateY - savedTranslateY);
       if (deltaX >= 0 && deltaX <= 3 && deltaY >= 0 && deltaY <= 3) {
-        this.webglRenderer.handleClickOnGraph(d3.event.sourceEvent.shiftKey);
+        this.webglRenderer.handleClickOnGraph(
+          (sourceEvent as MouseEvent).shiftKey,
+        );
       }
     }
   }

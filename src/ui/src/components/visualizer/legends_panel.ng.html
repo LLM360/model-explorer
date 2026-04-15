@@ -21,8 +21,12 @@ limitations under the License.
     <!-- Basics -->
     @if (!hideOp) {
       <tr #item>
-        <td><div class="key op-node-key"></div></td>
-        <td><div class="label">{{opLabel}}</div></td>
+        <td><div class="key op-node-key data-op"></div></td>
+        <td><div class="label">{{dataOpLabel}}</div></td>
+      </tr>
+      <tr #item>
+        <td><div class="key op-node-key shape-op"></div></td>
+        <td><div class="label">{{shapeOpLabel}}</div></td>
       </tr>
     }
     @if (!hideLayer) {
@@ -37,6 +41,26 @@ limitations under the License.
         <td><div class="label">Artificial layer to reduce layout load</div></td>
       </tr>
     }
+    <tr #item>
+      <td><div class="key edge-key normal"></div></td>
+      <td><div class="label">Normal edge</div></td>
+    </tr>
+    <tr #item>
+      <td><div class="key edge-key residual"></div></td>
+      <td><div class="label">Residual edge</div></td>
+    </tr>
+    <tr #item>
+      <td><div class="key edge-key shape"></div></td>
+      <td><div class="label">Shape edge</div></td>
+    </tr>
+    <tr #item>
+      <td><div class="key edge-key input"></div></td>
+      <td><div class="label">Input edge</div></td>
+    </tr>
+    <tr #item>
+      <td><div class="key edge-key output"></div></td>
+      <td><div class="label">Output edge</div></td>
+    </tr>
     <!-- Selected node -->
     @if (showSelectedNodeKey && ((isSelectedNodeGroup && !hideSelectedLayer) || (!isSelectedNodeGroup && !hideSelectedOp))) {
       <tr #item>

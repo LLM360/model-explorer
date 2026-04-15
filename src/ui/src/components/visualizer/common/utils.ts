@@ -63,10 +63,9 @@ import {
 } from './types';
 import {VisualizerConfig} from './visualizer_config';
 
-const CANVAS = new OffscreenCanvas(300, 300);
-
 /** Cache for label width indexed by label. */
 const LABEL_WIDTHS: {[label: string]: number} = {};
+let labelMeasurementCanvas: HTMLCanvasElement | null | undefined;
 
 /** Whether the current browser is Mac. */
 export const IS_MAC =
@@ -343,20 +342,53 @@ export function getLabelWidth(
   const key = `${label}___${fontSize}___${bold}`;
   let labelWidth = LABEL_WIDTHS[key];
   if (labelWidth == null) {
-    // On cache miss, render the text to a offscreen canvas to get its width.
-    const context = CANVAS.getContext('2d')! as {} as CanvasRenderingContext2D;
-    context.font = `${fontSize}px "Google Sans Text", Arial, Helvetica, sans-serif`;
-    if (bold) {
-      context.font = `bold ${context.font}`;
-    }
-    const metrics = context.measureText(label);
-    const width = metrics.width;
+    const width = measureLabelWidth(label, fontSize, bold);
     if (saveToCache) {
       LABEL_WIDTHS[key] = width;
     }
     labelWidth = width;
   }
   return labelWidth;
+}
+
+function measureLabelWidth(
+  label: string,
+  fontSize: number,
+  bold: boolean,
+): number {
+  const context = getLabelMeasurementContext();
+  if (!context) {
+    return estimateLabelWidth(label, fontSize, bold);
+  }
+
+  context.font = `${fontSize}px "Google Sans Text", Arial, Helvetica, sans-serif`;
+  if (bold) {
+    context.font = `bold ${context.font}`;
+  }
+  return context.measureText(label).width;
+}
+
+function getLabelMeasurementContext(): CanvasRenderingContext2D | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  if (labelMeasurementCanvas === undefined) {
+    labelMeasurementCanvas = document.createElement('canvas');
+    labelMeasurementCanvas.width = 300;
+    labelMeasurementCanvas.height = 300;
+  }
+
+  return labelMeasurementCanvas?.getContext('2d') ?? null;
+}
+
+function estimateLabelWidth(
+  label: string,
+  fontSize: number,
+  bold: boolean,
+): number {
+  const averageGlyphWidth = bold ? 0.66 : 0.61;
+  return Math.max(fontSize, Math.ceil(label.length * fontSize * averageGlyphWidth));
 }
 
 /** Gets the input label for the attrs table from the given node. */
@@ -1038,99 +1070,14 @@ export function splitLabel(label: string): string[] {
     .filter((line) => line !== '');
 }
 
-/** Wraps the label based on the given max width. */
-export function wrapLabel(
-  label: string,
-  maxWidth: number,
-  fontSize: number,
-  bold = false,
-): string[] {
-  const sections = label.split('\n');
-  const allLines: string[] = [];
-
-  for (const section of sections) {
-    if (section === '') {
-      allLines.push('');
-      continue;
-    }
-
-    const words = section.split(' ');
-    const lines: string[] = [];
-    let currentLine = words[0];
-
-    for (let i = 1; i < words.length; i++) {
-      const word = words[i];
-      const width = getLabelWidth(currentLine + ' ' + word, fontSize, bold);
-      if (width < maxWidth) {
-        currentLine += ' ' + word;
-      } else {
-        lines.push(currentLine);
-        currentLine = word;
-      }
-    }
-    lines.push(currentLine);
-
-    // Post-process to split any lines that are still too long (single words).
-    const finalLines: string[] = [];
-    for (const line of lines) {
-      if (getLabelWidth(line, fontSize, bold) <= maxWidth) {
-        finalLines.push(line);
-        continue;
-      }
-      // Split long word.
-      let curLine = line;
-      while (getLabelWidth(curLine, fontSize, bold) > maxWidth) {
-        // Find split point.
-        let low = 0;
-        let high = curLine.length;
-        let splitIndex = 0;
-        while (low <= high) {
-          const mid = Math.floor((low + high) / 2);
-          const sub = curLine.substring(0, mid);
-          if (getLabelWidth(sub, fontSize, bold) <= maxWidth) {
-            splitIndex = mid;
-            low = mid + 1;
-          } else {
-            high = mid - 1;
-          }
-        }
-        if (splitIndex === 0) {
-          // If even one char is too wide, just take one char (shouldn't happen with reasonable width).
-          splitIndex = 1;
-        }
-        finalLines.push(curLine.substring(0, splitIndex));
-        curLine = curLine.substring(splitIndex);
-      }
-      if (curLine.length > 0) {
-        finalLines.push(curLine);
-      }
-    }
-    allLines.push(...finalLines);
-  }
-
-  return allLines;
-}
-
 /** Get the extra height for multi-line label. */
 export function getMultiLineLabelExtraHeight(
   node: ModelNode,
   config?: VisualizerConfig,
 ): number {
-  let lineCount = 0;
-  if (config?.maxNodeLabelWidth) {
-    const lines = wrapLabel(
-      node.label,
-      config.maxNodeLabelWidth,
-      getNodeLabelHeight(node, config),
-      !isOpNode(node),
-    );
-    if (lines.length >= 1) {
-      return (lines.length - 1) * getNodeLabelLineHeight(node, config);
-    }
-  } else {
-    lineCount = splitLabel(node.label).length;
-  }
-  return (lineCount - 1) * getNodeLabelLineHeight(node, config);
+  return (
+    (splitLabel(node.label).length - 1) * getNodeLabelLineHeight(node, config)
+  );
 }
 
 /**
@@ -1414,14 +1361,9 @@ export function getLayoutMarginTop(
   config?: VisualizerConfig,
 ): number {
   const nodeLabelHeight = getNodeLabelHeight(node, config);
-  let extraHeight = 0;
-  if (config?.maxNodeLabelWidth) {
-    extraHeight = getMultiLineLabelExtraHeight(node, config);
-  }
-
   if (nodeLabelHeight === 11) {
-    return 36 + extraHeight;
+    return 36;
   }
   const nodeLabelYPadding = getNodeLabelYPadding(node, config);
-  return nodeLabelYPadding + nodeLabelHeight + extraHeight + 16;
+  return nodeLabelYPadding + nodeLabelHeight + 16;
 }

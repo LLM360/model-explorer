@@ -18,10 +18,13 @@
 
 import {
   DEFAULT_GROUP_NODE_CHILDREN_COUNT_THRESHOLD,
+  TENSOR_TAG_METADATA_KEY,
   TENSOR_VALUES_KEY,
 } from '../common/consts';
-import {Graph} from '../common/input_graph';
+import {Graph, GraphNode} from '../common/input_graph';
 import {
+  EdgeColorRole,
+  EdgeStyleData,
   GroupNode,
   ModelGraph,
   ModelNode,
@@ -35,6 +38,7 @@ import {
   NodeAttributePairs,
   NodeAttributeValue,
   NodeDataProviderRunData,
+  OutgoingEdge,
   ShowOnNodeItemData,
 } from '../common/types';
 import {
@@ -57,6 +61,7 @@ const CONST_VALUE_REGEX = /dense<([^>]*)>/;
  * A class that processes a given `Graph` into a `ModelGraph`.
  */
 export class GraphProcessor {
+  private readonly activeGraph: Graph;
   private readonly nodeLabelsToHide: Set<string>;
 
   constructor(
@@ -74,10 +79,15 @@ export class GraphProcessor {
     private readonly groupNodeChildrenCountThreshold = DEFAULT_GROUP_NODE_CHILDREN_COUNT_THRESHOLD,
     private readonly testMode = false,
     private readonly flattenLayers = false,
+    private readonly architectureMode = false,
+    private readonly hideShapeNodes = false,
     private readonly keepLayersWithASingleChild = false,
   ) {
+    this.activeGraph = this.architectureMode
+      ? buildArchitectureGraph(this.graph)
+      : this.graph;
     this.nodeLabelsToHide = new Set<string>(
-      (this.graph.nodeLabelsToHide ?? this.config?.nodeLabelsToHide ?? []).map(
+      (this.activeGraph.nodeLabelsToHide ?? this.config?.nodeLabelsToHide ?? []).map(
         (label) => label.toLowerCase(),
       ),
     );
@@ -88,12 +98,14 @@ export class GraphProcessor {
 
     this.processNodes(modelGraph);
     this.processEdgeRelationships(modelGraph);
+    this.classifyShapeNodes(modelGraph);
     updateProcessingProgress(
       this.paneId,
       ProcessingLabel.PROCESSING_NODES_AND_EDGES,
     );
 
     this.processNamespaceRelationships(modelGraph);
+    this.pruneEmptyGroupNodes(modelGraph);
     updateProcessingProgress(
       this.paneId,
       ProcessingLabel.PROCESSING_LAYER_NAMESPACES,
@@ -122,7 +134,7 @@ export class GraphProcessor {
    */
   processNodes(modelGraph: ModelGraph) {
     const seenNamespaces = new Set<string>();
-    for (const graphNode of this.graph.nodes) {
+    for (const graphNode of this.activeGraph.nodes) {
       // Add an `OpNode` to the model graph for each node in the input graph.
       //
       // If namespace is a ";" separated string, use the last component as the
@@ -242,11 +254,71 @@ export class GraphProcessor {
     }
   }
 
+  private classifyShapeNodes(modelGraph: ModelGraph) {
+    if (!this.hideShapeNodes) {
+      return;
+    }
+    // Prefer explicit tensor-tag metadata and fall back to shape-only edge
+    // flow only when the node has no data edges.
+    for (const node of modelGraph.nodes) {
+      if (!isOpNode(node) || node.hideInLayout) {
+        continue;
+      }
+      if (this.shouldHideShapeNode(node)) {
+        node.hideInLayout = true;
+      }
+    }
+  }
+
+  private pruneEmptyGroupNodes(modelGraph: ModelGraph) {
+    while (true) {
+      let removedAny = false;
+      for (const node of [...modelGraph.nodes]) {
+        if (!isGroupNode(node)) {
+          continue;
+        }
+        if ((node.nsChildrenIds || []).length > 0) {
+          continue;
+        }
+
+        removedAny = true;
+        const nodeIndex = modelGraph.nodes.indexOf(node);
+        if (nodeIndex >= 0) {
+          modelGraph.nodes.splice(nodeIndex, 1);
+        }
+        delete modelGraph.nodesById[node.id];
+
+        const rootIndex = modelGraph.rootNodes.indexOf(node);
+        if (rootIndex >= 0) {
+          modelGraph.rootNodes.splice(rootIndex, 1);
+        }
+
+        if (node.nsParentId) {
+          const parentNode = modelGraph.nodesById[node.nsParentId] as GroupNode;
+          if (parentNode?.nsChildrenIds) {
+            parentNode.nsChildrenIds = parentNode.nsChildrenIds.filter(
+              (childId) => childId !== node.id,
+            );
+          }
+        }
+
+        if (modelGraph.artificialGroupNodeIds != null) {
+          modelGraph.artificialGroupNodeIds =
+            modelGraph.artificialGroupNodeIds.filter((id) => id !== node.id);
+        }
+      }
+
+      if (!removedAny) {
+        break;
+      }
+    }
+  }
+
   /**
    * Sets edges in the given model graph based on the edges in the input graph.
    */
   processEdgeRelationships(modelGraph: ModelGraph) {
-    for (const graphNode of this.graph.nodes) {
+    for (const graphNode of this.activeGraph.nodes) {
       const node = modelGraph.nodesById[graphNode.id] as OpNode;
       if (!node) {
         continue;
@@ -292,6 +364,7 @@ export class GraphProcessor {
             targetNodeId: node.id,
             sourceNodeOutputId: incomingEdge.sourceNodeOutputId,
             targetNodeInputId: incomingEdge.targetNodeInputId,
+            metadata: incomingEdge.metadata,
           });
         }
       }
@@ -335,10 +408,16 @@ export class GraphProcessor {
         if (!parentGroupNode.nsChildrenIds.includes(node.id)) {
           parentGroupNode.nsChildrenIds.push(node.id);
           if (isOpNode(node) && node.config?.pinToGroupTop) {
-            parentGroupNode.pinToTopOpNode = node;
+            if (parentGroupNode.pinToTopOpNodes == null) {
+              parentGroupNode.pinToTopOpNodes = [];
+            }
+            parentGroupNode.pinToTopOpNodes.push(node);
           }
           if (isOpNode(node) && node.config?.pinToGroupBottom) {
-            parentGroupNode.pinToBottomOpNode = node;
+            if (parentGroupNode.pinToBottomOpNodes == null) {
+              parentGroupNode.pinToBottomOpNodes = [];
+            }
+            parentGroupNode.pinToBottomOpNodes.push(node);
           }
         }
       }
@@ -501,9 +580,16 @@ export class GraphProcessor {
           modelGraph.layoutGraphEdges[commonNsGroupId][connectionFromNodeId] =
             {};
         }
+        const existingEdgeStyle =
+          modelGraph.layoutGraphEdges[commonNsGroupId][connectionFromNodeId][
+            connectionToNodeId
+          ];
         modelGraph.layoutGraphEdges[commonNsGroupId][connectionFromNodeId][
           connectionToNodeId
-        ] = true;
+        ] = mergeEdgeStyleData(
+          existingEdgeStyle,
+          getOutgoingEdgeStyleData(edge),
+        );
       }
 
       for (const edge of outgoingEdges) {
@@ -737,8 +823,8 @@ export class GraphProcessor {
 
   createEmptyModelGraph(): ModelGraph {
     const modelGraph: ModelGraph = {
-      id: this.graph.id,
-      collectionLabel: this.graph.collectionLabel || '',
+      id: this.activeGraph.id,
+      collectionLabel: this.activeGraph.collectionLabel || '',
       nodes: [],
       nodesById: {},
       rootNodes: [],
@@ -746,17 +832,17 @@ export class GraphProcessor {
       layoutGraphEdges: {},
       minDescendantOpNodeCount: -1,
       maxDescendantOpNodeCount: -1,
-      modelPath: this.graph.modelPath,
-      adapterId: this.graph.adapterId,
+      modelPath: this.activeGraph.modelPath,
+      adapterId: this.activeGraph.adapterId,
     };
-    if (this.graph.groupNodeAttributes) {
-      modelGraph.groupNodeAttributes = this.graph.groupNodeAttributes;
+    if (this.activeGraph.groupNodeAttributes) {
+      modelGraph.groupNodeAttributes = this.activeGraph.groupNodeAttributes;
     }
-    if (this.graph.groupNodeConfigs) {
-      modelGraph.groupNodeConfigs = this.graph.groupNodeConfigs;
+    if (this.activeGraph.groupNodeConfigs) {
+      modelGraph.groupNodeConfigs = this.activeGraph.groupNodeConfigs;
     }
-    if (this.graph.layoutConfigs) {
-      modelGraph.layoutConfigs = this.graph.layoutConfigs;
+    if (this.activeGraph.layoutConfigs) {
+      modelGraph.layoutConfigs = this.activeGraph.layoutConfigs;
     }
 
     return modelGraph;
@@ -839,6 +925,729 @@ export class GraphProcessor {
     }
     return metadata;
   }
+
+  private hasShapeTensorTag(
+    metadata?: Record<string, KeyValuePairs>,
+  ): boolean {
+    return Object.values(metadata || {}).some((attrs) =>
+      this.isShapeTensorTag(attrs[TENSOR_TAG_METADATA_KEY]),
+    );
+  }
+
+  private shouldHideShapeNode(node: OpNode): boolean {
+    const graphDomain = node.attrs?.['graph_domain'];
+    if (graphDomain === 'shape') {
+      return true;
+    }
+    if (graphDomain === 'data' || graphDomain === 'residual') {
+      return false;
+    }
+
+    return this.hasShapeTensorTag(node.outputsMetadata);
+  }
+
+  private isShapeTensorTag(value: NodeAttributeValue | undefined): boolean {
+    if (typeof value !== 'string') {
+      return false;
+    }
+    const normalizedValue = value.toLowerCase();
+    return normalizedValue === 'shape' || normalizedValue === 'tensor_shape';
+  }
+}
+
+interface CompactArchitectureNode {
+  node: GraphNode;
+  firstSeenIndex: number;
+}
+
+interface ArchitectureFamily {
+  familyKey: string;
+  familyParts: string[];
+  iterationNamespaces: string[];
+  nodesByIterationNamespace: Map<string, GraphNode[]>;
+}
+
+interface ArchitectureIterationSignature {
+  signature: string;
+  nodeIdsInOrder: string[];
+}
+
+interface ArchitectureRun {
+  runId: string;
+  familyParts: string[];
+  iterationNamespaces: string[];
+  representativeIterationNamespace: string;
+  label: string;
+}
+
+interface ArchitectureMembership {
+  runId: string;
+  iterationNamespace: string;
+}
+
+function buildArchitectureGraph(graph: Graph): Graph {
+  const families = collectArchitectureFamilies(graph);
+  if (families.length === 0) {
+    return graph;
+  }
+
+  const directNodeIdMapping = new Map<string, string>();
+  const runsByRepresentativeIterationKey = new Map<string, ArchitectureRun>();
+  const runByIterationNamespace = new Map<string, ArchitectureRun>();
+
+  for (const family of [...families].sort(
+    (lhs, rhs) => rhs.familyParts.length - lhs.familyParts.length,
+  )) {
+    const signaturesByIterationNamespace = new Map<
+      string,
+      ArchitectureIterationSignature
+    >();
+    for (const iterationNamespace of family.iterationNamespaces) {
+      signaturesByIterationNamespace.set(
+        iterationNamespace,
+        buildArchitectureIterationSignature(
+          iterationNamespace,
+          family.nodesByIterationNamespace.get(iterationNamespace) || [],
+        ),
+      );
+    }
+
+    for (let startIndex = 0; startIndex < family.iterationNamespaces.length; ) {
+      const representativeIterationNamespace = family.iterationNamespaces[startIndex];
+      const representativeSignature = signaturesByIterationNamespace.get(
+        representativeIterationNamespace,
+      );
+      if (!representativeSignature) {
+        startIndex++;
+        continue;
+      }
+
+      let endIndex = startIndex + 1;
+      while (endIndex < family.iterationNamespaces.length) {
+        const nextSignature = signaturesByIterationNamespace.get(
+          family.iterationNamespaces[endIndex],
+        );
+        if (nextSignature?.signature !== representativeSignature.signature) {
+          break;
+        }
+        endIndex++;
+      }
+
+      const runCount = endIndex - startIndex;
+      if (runCount > 1) {
+        const runIterationNamespaces = family.iterationNamespaces.slice(
+          startIndex,
+          endIndex,
+        );
+        const run: ArchitectureRun = {
+          runId: `${family.familyKey}|${runIterationNamespaces[0]}|${
+            runIterationNamespaces[runIterationNamespaces.length - 1]
+          }`,
+          familyParts: family.familyParts,
+          iterationNamespaces: runIterationNamespaces,
+          representativeIterationNamespace,
+          label: getArchitectureRunLabel(
+            family.familyParts,
+            representativeIterationNamespace,
+            family.nodesByIterationNamespace.get(representativeIterationNamespace) ||
+              [],
+            runCount,
+          ),
+        };
+        runsByRepresentativeIterationKey.set(
+          getArchitectureRunKey(
+            family.familyParts,
+            getIterationTokenFromNamespace(representativeIterationNamespace),
+          ),
+          run,
+        );
+        for (const iterationNamespace of run.iterationNamespaces) {
+          runByIterationNamespace.set(iterationNamespace, run);
+        }
+
+        for (let index = startIndex + 1; index < endIndex; index++) {
+          const iterationNamespace = family.iterationNamespaces[index];
+          const iterationSignature = signaturesByIterationNamespace.get(
+            iterationNamespace,
+          );
+          if (!iterationSignature) {
+            continue;
+          }
+          for (
+            let nodeIndex = 0;
+            nodeIndex < iterationSignature.nodeIdsInOrder.length;
+            nodeIndex++
+          ) {
+            directNodeIdMapping.set(
+              iterationSignature.nodeIdsInOrder[nodeIndex],
+              representativeSignature.nodeIdsInOrder[nodeIndex],
+            );
+          }
+        }
+      }
+
+      startIndex = endIndex;
+    }
+  }
+
+  if (directNodeIdMapping.size === 0) {
+    return graph;
+  }
+
+  const originalNodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const resolvedNodeIdCache = new Map<string, string>();
+  const compactNodesById: Record<string, CompactArchitectureNode> = {};
+
+  for (let index = 0; index < graph.nodes.length; index++) {
+    const graphNode = graph.nodes[index];
+    const compactNodeId = resolveArchitectureNodeId(
+      graphNode.id,
+      directNodeIdMapping,
+      resolvedNodeIdCache,
+    );
+    if (compactNodeId !== graphNode.id) {
+      continue;
+    }
+    compactNodesById[compactNodeId] = {
+      node: cloneGraphNodeForArchitecture(
+        graphNode,
+        getCompactArchitectureNamespace(
+          graphNode.namespace,
+          runsByRepresentativeIterationKey,
+        ),
+      ),
+      firstSeenIndex: getTopologicalIndex(graphNode, index),
+    };
+  }
+
+  const seenIncomingEdges = new Set<string>();
+  for (const graphNode of graph.nodes) {
+    const originalTargetNode = originalNodesById.get(graphNode.id);
+    if (!originalTargetNode) {
+      continue;
+    }
+    const targetNodeId = resolveArchitectureNodeId(
+      graphNode.id,
+      directNodeIdMapping,
+      resolvedNodeIdCache,
+    );
+    const compactTargetNode = compactNodesById[targetNodeId]?.node;
+    if (!compactTargetNode) {
+      continue;
+    }
+    for (const incomingEdge of graphNode.incomingEdges || []) {
+      const originalSourceNode = originalNodesById.get(incomingEdge.sourceNodeId);
+      if (!originalSourceNode) {
+        continue;
+      }
+      if (
+        shouldDropArchitectureEdge(
+          originalSourceNode.namespace,
+          originalTargetNode.namespace,
+          runByIterationNamespace,
+        )
+      ) {
+        continue;
+      }
+      const sourceNodeId = resolveArchitectureNodeId(
+        incomingEdge.sourceNodeId,
+        directNodeIdMapping,
+        resolvedNodeIdCache,
+      );
+      if (sourceNodeId === targetNodeId) {
+        continue;
+      }
+      const compactIncomingEdge = remapArchitectureIncomingEdge(
+        incomingEdge,
+        graphNode.id,
+        sourceNodeId,
+        targetNodeId,
+        originalNodesById,
+      );
+      const edgeKey = getArchitectureEdgeKey(targetNodeId, compactIncomingEdge);
+      if (seenIncomingEdges.has(edgeKey)) {
+        continue;
+      }
+      seenIncomingEdges.add(edgeKey);
+      if (compactTargetNode.incomingEdges == null) {
+        compactTargetNode.incomingEdges = [];
+      }
+      compactTargetNode.incomingEdges.push(compactIncomingEdge);
+    }
+  }
+
+  return {
+    ...graph,
+    nodes: Object.values(compactNodesById)
+      .sort((lhs, rhs) => lhs.firstSeenIndex - rhs.firstSeenIndex)
+      .map((compactNode) => compactNode.node),
+  };
+}
+
+function collectArchitectureFamilies(graph: Graph): ArchitectureFamily[] {
+  const familiesByKey = new Map<string, ArchitectureFamily>();
+  for (const graphNode of graph.nodes) {
+    const namespaceParts = splitNamespace(graphNode.namespace);
+    for (let index = 0; index < namespaceParts.length; index++) {
+      const namespacePart = namespaceParts[index];
+      if (!isNumericNamespacePart(namespacePart)) {
+        continue;
+      }
+      const familyParts = namespaceParts.slice(0, index);
+      const familyKey = [...familyParts, '#'].join('/');
+      const iterationNamespace = namespaceParts.slice(0, index + 1).join('/');
+
+      let family = familiesByKey.get(familyKey);
+      if (!family) {
+        family = {
+          familyKey,
+          familyParts,
+          iterationNamespaces: [],
+          nodesByIterationNamespace: new Map<string, GraphNode[]>(),
+        };
+        familiesByKey.set(familyKey, family);
+      }
+
+      if (!family.nodesByIterationNamespace.has(iterationNamespace)) {
+        family.iterationNamespaces.push(iterationNamespace);
+        family.nodesByIterationNamespace.set(iterationNamespace, []);
+      }
+      family.nodesByIterationNamespace.get(iterationNamespace)?.push(graphNode);
+    }
+  }
+
+  return Array.from(familiesByKey.values())
+    .filter((family) => family.iterationNamespaces.length > 1)
+    .map((family) => ({
+      ...family,
+      iterationNamespaces: [...family.iterationNamespaces].sort(
+        compareIterationNamespaces,
+      ),
+    }));
+}
+
+function buildArchitectureIterationSignature(
+  iterationNamespace: string,
+  iterationNodes: GraphNode[],
+): ArchitectureIterationSignature {
+  const orderedNodes = [...iterationNodes].sort((lhs, rhs) => {
+    return getTopologicalIndex(lhs, 0) - getTopologicalIndex(rhs, 0);
+  });
+  const orderedNodeIds = orderedNodes.map((node) => node.id);
+  const nodeOrderById = new Map(
+    orderedNodeIds.map((nodeId, index) => [nodeId, index]),
+  );
+  const nodeDescriptors = orderedNodes.map((node) =>
+    JSON.stringify({
+      namespace: getRelativeArchitectureNamespace(node.namespace, iterationNamespace),
+      label: node.label,
+      target: normalizeArchitectureValue(getGraphNodeAttr(node, 'target')),
+      modulePath: normalizeArchitectureValue(
+        getGraphNodeAttr(node, 'module_path'),
+      ),
+    }),
+  );
+  const edgeDescriptors: string[] = [];
+  for (const targetNode of orderedNodes) {
+    const targetIndex = nodeOrderById.get(targetNode.id);
+    if (targetIndex == null) {
+      continue;
+    }
+    for (const incomingEdge of targetNode.incomingEdges || []) {
+      const sourceIndex = nodeOrderById.get(incomingEdge.sourceNodeId);
+      if (sourceIndex == null) {
+        continue;
+      }
+      edgeDescriptors.push(
+        [
+          sourceIndex,
+          targetIndex,
+          incomingEdge.metadata?.['edge_color_role'] || '',
+          incomingEdge.metadata?.['edge_is_residual'] || '',
+          incomingEdge.metadata?.['edge_is_shape'] || '',
+        ].join('|'),
+      );
+    }
+  }
+
+  edgeDescriptors.sort();
+  return {
+    signature: JSON.stringify({
+      nodes: nodeDescriptors,
+      edges: edgeDescriptors,
+    }),
+    nodeIdsInOrder: orderedNodeIds,
+  };
+}
+
+function getArchitectureRunLabel(
+  familyParts: string[],
+  iterationNamespace: string,
+  iterationNodes: GraphNode[],
+  runCount: number,
+): string {
+  const familyLabel = unEscapeString(
+    familyParts[familyParts.length - 1] || '',
+  ).trim();
+  if (familyLabel) {
+    return `${familyLabel} x ${runCount}`;
+  }
+
+  const representativeNode = [...iterationNodes].sort((lhs, rhs) => {
+    const depthDelta =
+      getRelativeArchitectureDepth(lhs.namespace, iterationNamespace) -
+      getRelativeArchitectureDepth(rhs.namespace, iterationNamespace);
+    if (depthDelta !== 0) {
+      return depthDelta;
+    }
+    return getTopologicalIndex(lhs, 0) - getTopologicalIndex(rhs, 0);
+  })[0];
+  const representativeLabel = representativeNode?.label?.trim() || 'Block';
+  return `${representativeLabel} x ${runCount}`;
+}
+
+function resolveArchitectureNodeId(
+  nodeId: string,
+  directNodeIdMapping: Map<string, string>,
+  resolvedNodeIdCache: Map<string, string>,
+): string {
+  const cachedNodeId = resolvedNodeIdCache.get(nodeId);
+  if (cachedNodeId) {
+    return cachedNodeId;
+  }
+
+  let resolvedNodeId = nodeId;
+  const seenNodeIds = new Set<string>();
+  while (directNodeIdMapping.has(resolvedNodeId)) {
+    if (seenNodeIds.has(resolvedNodeId)) {
+      break;
+    }
+    seenNodeIds.add(resolvedNodeId);
+    resolvedNodeId = directNodeIdMapping.get(resolvedNodeId) || resolvedNodeId;
+  }
+  resolvedNodeIdCache.set(nodeId, resolvedNodeId);
+  return resolvedNodeId;
+}
+
+function shouldDropArchitectureEdge(
+  sourceNamespace: string,
+  targetNamespace: string,
+  runByIterationNamespace: Map<string, ArchitectureRun>,
+): boolean {
+  const sourceMembership = findArchitectureMembership(
+    sourceNamespace,
+    runByIterationNamespace,
+  );
+  const targetMembership = findArchitectureMembership(
+    targetNamespace,
+    runByIterationNamespace,
+  );
+  return (
+    sourceMembership != null &&
+    targetMembership != null &&
+    sourceMembership.runId === targetMembership.runId &&
+    sourceMembership.iterationNamespace !== targetMembership.iterationNamespace
+  );
+}
+
+function findArchitectureMembership(
+  namespace: string,
+  runByIterationNamespace: Map<string, ArchitectureRun>,
+): ArchitectureMembership | undefined {
+  if (namespace === '') {
+    return undefined;
+  }
+  const namespaceParts = splitNamespace(namespace);
+  for (let depth = namespaceParts.length; depth > 0; depth--) {
+    const iterationNamespace = namespaceParts.slice(0, depth).join('/');
+    const run = runByIterationNamespace.get(iterationNamespace);
+    if (!run) {
+      continue;
+    }
+    return {
+      runId: run.runId,
+      iterationNamespace,
+    };
+  }
+  return undefined;
+}
+
+function remapArchitectureIncomingEdge(
+  incomingEdge: {
+    sourceNodeId: string;
+    sourceNodeOutputId: string;
+    targetNodeInputId: string;
+    metadata?: KeyValuePairs;
+  },
+  originalTargetNodeId: string,
+  sourceNodeId: string,
+  targetNodeId: string,
+  originalNodesById: Map<string, GraphNode>,
+): {
+  sourceNodeId: string;
+  sourceNodeOutputId: string;
+  targetNodeInputId: string;
+  metadata?: KeyValuePairs;
+} {
+  const originalSourceNode = originalNodesById.get(incomingEdge.sourceNodeId);
+  const originalTargetNode = originalNodesById.get(originalTargetNodeId);
+  const mappedSourceNode = originalNodesById.get(sourceNodeId);
+  const mappedTargetNode = originalNodesById.get(targetNodeId);
+
+  return {
+    ...incomingEdge,
+    sourceNodeId,
+    sourceNodeOutputId: remapArchitectureMetadataId(
+      originalSourceNode,
+      mappedSourceNode,
+      incomingEdge.sourceNodeOutputId,
+      'output',
+    ),
+    targetNodeInputId: remapArchitectureMetadataId(
+      originalTargetNode,
+      mappedTargetNode,
+      incomingEdge.targetNodeInputId,
+      'input',
+    ),
+  };
+}
+
+function remapArchitectureMetadataId(
+  originalNode: GraphNode | undefined,
+  mappedNode: GraphNode | undefined,
+  metadataId: string,
+  kind: 'input' | 'output',
+): string {
+  if (!originalNode || !mappedNode || originalNode.id === mappedNode.id) {
+    return metadataId;
+  }
+
+  const originalMetadataIds = getArchitectureMetadataIds(originalNode, kind);
+  const mappedMetadataIds = getArchitectureMetadataIds(mappedNode, kind);
+  const metadataIndex = originalMetadataIds.indexOf(metadataId);
+  if (metadataIndex < 0 || metadataIndex >= mappedMetadataIds.length) {
+    return metadataId;
+  }
+  return mappedMetadataIds[metadataIndex];
+}
+
+function getArchitectureMetadataIds(
+  graphNode: GraphNode,
+  kind: 'input' | 'output',
+): string[] {
+  return (kind === 'input' ? graphNode.inputsMetadata : graphNode.outputsMetadata)
+    ?.map((metadataItem) => metadataItem.id) || [];
+}
+
+function getCompactArchitectureNamespace(
+  namespace: string,
+  runsByRepresentativeIterationKey: Map<string, ArchitectureRun>,
+): string {
+  if (namespace === '') {
+    return '';
+  }
+
+  const namespaceParts = splitNamespace(namespace);
+  const compactNamespaceParts: string[] = [];
+  for (let index = 0; index < namespaceParts.length; index++) {
+    const namespacePart = namespaceParts[index];
+    if (isNumericNamespacePart(namespacePart)) {
+      const familyParts = namespaceParts.slice(0, index);
+      const run = runsByRepresentativeIterationKey.get(
+        getArchitectureRunKey(familyParts, namespacePart),
+      );
+      if (run) {
+        const escapedLabel = escapeArchitectureNamespaceSegment(run.label);
+        if (compactNamespaceParts.length > 0) {
+          compactNamespaceParts[compactNamespaceParts.length - 1] = escapedLabel;
+        } else {
+          compactNamespaceParts.push(escapedLabel);
+        }
+        continue;
+      }
+    }
+    compactNamespaceParts.push(namespacePart);
+  }
+
+  return compactNamespaceParts.join('/');
+}
+
+function cloneGraphNodeForArchitecture(
+  graphNode: GraphNode,
+  compactNamespace: string,
+): GraphNode {
+  return {
+    ...graphNode,
+    namespace: compactNamespace,
+    incomingEdges: [],
+    attrs: cloneNodeAttributeList(graphNode.attrs),
+    inputsMetadata: cloneMetadataList(graphNode.inputsMetadata),
+    outputsMetadata: cloneMetadataList(graphNode.outputsMetadata),
+  };
+}
+
+function cloneNodeAttributeList(
+  attrs: NodeAttributeList | undefined,
+): NodeAttributeList | undefined {
+  return attrs?.map((attr) => ({...attr}));
+}
+
+function cloneMetadataList(
+  metadataList: MetadataItem[] | undefined,
+): MetadataItem[] | undefined {
+  return metadataList?.map((metadataItem) => ({
+    ...metadataItem,
+    attrs: metadataItem.attrs.map((attr) => ({...attr})),
+  }));
+}
+
+function getArchitectureEdgeKey(
+  targetNodeId: string,
+  incomingEdge: {
+    sourceNodeId: string;
+    sourceNodeOutputId: string;
+    targetNodeInputId: string;
+    metadata?: KeyValuePairs;
+  },
+): string {
+  return [
+    incomingEdge.sourceNodeId,
+    targetNodeId,
+    incomingEdge.metadata?.['value'] || '',
+    incomingEdge.metadata?.['edge_color_role'] || '',
+    incomingEdge.metadata?.['edge_is_residual'] || '',
+    incomingEdge.metadata?.['edge_is_shape'] || '',
+  ].join('|');
+}
+
+function compareIterationNamespaces(lhs: string, rhs: string): number {
+  return getIterationIndexFromNamespace(lhs) - getIterationIndexFromNamespace(rhs);
+}
+
+function getIterationIndexFromNamespace(iterationNamespace: string): number {
+  return Number.parseInt(getIterationTokenFromNamespace(iterationNamespace), 10);
+}
+
+function getArchitectureRunKey(
+  familyParts: string[],
+  iterationToken: string,
+): string {
+  return `${familyParts.join('/')}|${iterationToken}`;
+}
+
+function getIterationTokenFromNamespace(iterationNamespace: string): string {
+  const namespaceParts = splitNamespace(iterationNamespace);
+  return namespaceParts[namespaceParts.length - 1] || '0';
+}
+
+function getRelativeArchitectureNamespace(
+  namespace: string,
+  iterationNamespace: string,
+): string {
+  const namespaceParts = splitNamespace(namespace);
+  const iterationNamespaceParts = splitNamespace(iterationNamespace);
+  return namespaceParts.slice(iterationNamespaceParts.length).join('/');
+}
+
+function getRelativeArchitectureDepth(
+  namespace: string,
+  iterationNamespace: string,
+): number {
+  return splitNamespace(
+    getRelativeArchitectureNamespace(namespace, iterationNamespace),
+  ).length;
+}
+
+function getGraphNodeAttr(
+  graphNode: GraphNode,
+  attrKey: string,
+): string {
+  const attrValue = graphNode.attrs?.find((attr) => attr.key === attrKey)?.value;
+  return typeof attrValue === 'string' ? attrValue : '';
+}
+
+function normalizeArchitectureValue(value: string): string {
+  return value.replace(/(^|[./])(\d+)(?=([./]|$))/g, '$1#');
+}
+
+function isNumericNamespacePart(namespacePart: string): boolean {
+  return /^\d+$/.test(namespacePart);
+}
+
+function escapeArchitectureNamespaceSegment(segment: string): string {
+  return segment.replace(/\//g, '\\/').trim() || 'Block';
+}
+
+function getTopologicalIndex(graphNode: GraphNode, fallbackIndex: number): number {
+  const topologicalIndex = graphNode.attrs?.find(
+    (attr) => attr.key === 'topological_index',
+  )?.value;
+  if (typeof topologicalIndex === 'string') {
+    const parsed = Number.parseInt(topologicalIndex, 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return fallbackIndex;
+}
+
+function getOutgoingEdgeStyleData(edge: OutgoingEdge): EdgeStyleData {
+  const colorRole = parseEdgeColorRole(edge.metadata?.['edge_color_role']);
+  const legacyEdgeDomain = edge.metadata?.['edge_domain'];
+  return {
+    colorRole,
+    isResidual:
+      parseEdgeBoolean(edge.metadata?.['edge_is_residual']) ||
+      legacyEdgeDomain === 'residual',
+    isShape:
+      parseEdgeBoolean(edge.metadata?.['edge_is_shape']) ||
+      legacyEdgeDomain === 'shape',
+  };
+}
+
+function mergeEdgeStyleData(
+  currentEdgeStyle: EdgeStyleData | undefined,
+  nextEdgeStyle: EdgeStyleData,
+): EdgeStyleData {
+  if (!currentEdgeStyle) {
+    return nextEdgeStyle;
+  }
+  return {
+    colorRole: pickPreferredColorRole(
+      currentEdgeStyle.colorRole,
+      nextEdgeStyle.colorRole,
+    ),
+    isResidual: currentEdgeStyle.isResidual || nextEdgeStyle.isResidual,
+    isShape: currentEdgeStyle.isShape || nextEdgeStyle.isShape,
+  };
+}
+
+function parseEdgeColorRole(value: NodeAttributeValue | undefined): EdgeColorRole {
+  switch (value) {
+    case 'input':
+    case 'output':
+      return value;
+    default:
+      return 'data';
+  }
+}
+
+function parseEdgeBoolean(value: NodeAttributeValue | undefined): boolean {
+  return value === true || value === 'true';
+}
+
+function pickPreferredColorRole(
+  currentColorRole: EdgeColorRole,
+  nextColorRole: EdgeColorRole,
+): EdgeColorRole {
+  const priority: Record<EdgeColorRole, number> = {
+    input: 3,
+    output: 2,
+    data: 1,
+  };
+  return priority[nextColorRole] > priority[currentColorRole]
+    ? nextColorRole
+    : currentColorRole;
 }
 
 /**

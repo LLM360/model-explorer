@@ -16,12 +16,7 @@
  * ==============================================================================
  */
 import {CommonModule} from '@angular/common';
-import {
-  ChangeDetectionStrategy,
-  Component,
-  Injectable,
-  signal,
-} from '@angular/core';
+import {Component, Injectable, signal} from '@angular/core';
 import {MatIconModule} from '@angular/material/icon';
 
 import {IS_EXTERNAL} from '../../common/flags';

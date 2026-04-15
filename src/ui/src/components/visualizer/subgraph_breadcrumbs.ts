@@ -89,6 +89,8 @@ export class SubgraphBreadcrumbs {
             graph,
             snapshot.flattenLayers,
             snapshot,
+            true,
+            snapshot.architectureMode,
           );
         }
       }

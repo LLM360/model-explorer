@@ -25,8 +25,10 @@ if [[ ":$dir" != *"/src/ui" ]]; then
   exit 1
 fi
 
+build_configuration="${MODEL_EXPLORER_BUILD_CONFIGURATION:-production}"
+
 # Build app.
-ng build model_explorer
+ng build model_explorer --configuration "${build_configuration}"
 
 # Remove old app
 cd ../server/package/src/model_explorer/web_app

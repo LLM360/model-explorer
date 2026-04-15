@@ -19,7 +19,6 @@
 import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
-  ChangeDetectionStrategy,
   Component,
   computed,
   effect,
@@ -70,6 +69,7 @@ import {ThemePreference, ThemeService} from '../../services/theme_service';
 import {UrlService} from '../../services/url_service';
 import {ModelSourceInput} from '../model_source_input/model_source_input';
 import {OpenInNewTabButton} from '../open_in_new_tab_button/open_in_new_tab_button';
+import {RadianceSourceInput} from '../radiance_source_input/radiance_source_input';
 import {OpenSourceLibsDialog} from '../open_source_libs_dialog/open_source_libs_dialog';
 import {
   SettingsDialog,
@@ -114,6 +114,7 @@ import {WelcomeCard} from '../welcome_card/welcome_card';
     ModelSourceInput,
     NewVersionChip,
     OpenInNewTabButton,
+    RadianceSourceInput,
     WelcomeCard,
   ],
   templateUrl: './home_page.ng.html',
@@ -122,6 +123,8 @@ import {WelcomeCard} from '../welcome_card/welcome_card';
 export class HomePage implements AfterViewInit {
   @ViewChild('modelSourceInput', {static: false})
   modelSourceInput!: ModelSourceInput;
+  @ViewChild('radianceSourceInput', {static: false})
+  radianceSourceInput?: RadianceSourceInput;
   @ViewChild('modelGraphVisualizer', {static: false})
   modelGraphVisualizer?: ModelGraphVisualizer;
 
@@ -174,7 +177,7 @@ export class HomePage implements AfterViewInit {
   remoteNodeDataPaths: string[] = [];
   remoteNodeDataTargetModels: string[] = [];
   syncNavigation?: SyncNavigationModeChangedEvent;
-  hasUploadedModels = signal<boolean>(false);
+  hasUploadedModels: Signal<boolean> = signal<boolean>(false);
   shareButtonTooltip: Signal<string> = signal<string>('');
 
   private readonly remoteProcessedNodeDataTargetModels = new Set<string>();
@@ -231,8 +234,8 @@ export class HomePage implements AfterViewInit {
   }
 
   ngAfterViewInit() {
-    if (this.modelSourceInput) {
-      this.hasUploadedModels = this.modelSourceInput.hasUploadedModels;
+    if (this.radianceSourceInput) {
+      this.hasUploadedModels = this.radianceSourceInput.hasUploadedModels;
       this.shareButtonTooltip = computed<string>(() =>
         this.hasUploadedModels()
           ? 'Share is not available for uploaded models'
@@ -293,6 +296,10 @@ export class HomePage implements AfterViewInit {
     } else {
       // Use DataTransfer interface to access the file(s)
       files.push(...Array.from(event.dataTransfer?.files || []));
+    }
+    if (this.radianceSourceInput) {
+      void this.radianceSourceInput.addFiles(files);
+      return;
     }
     this.modelSourceInput.addFiles(files);
   }

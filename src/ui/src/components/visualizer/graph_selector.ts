@@ -38,7 +38,7 @@ import {MatTooltipModule} from '@angular/material/tooltip';
 import {setAnchorHref} from 'safevalues/dom';
 import {AppService} from './app_service';
 import {Graph, GraphCollection} from './common/input_graph';
-import {exportToResource} from './common/utils';
+import {exportToResource, getLabelWidth} from './common/utils';
 import {GraphSelectorPanel} from './graph_selector_panel';
 
 /** A graph collection in the dropdown menu. */
@@ -56,9 +56,6 @@ export interface GraphItem {
   nonHiddenNodeCount: number;
   width: number;
 }
-
-const CANVAS = new OffscreenCanvas(500, 300);
-const LABEL_WIDTHS: {[label: string]: number} = {};
 
 /**
  * The graph selector component.
@@ -120,7 +117,7 @@ export class GraphSelector {
           (node) => !nodeLabelsToHide.has(node.label.toLowerCase()),
         ).length;
         const width =
-          this.getLabelWidth(` ${graph.id}    ${nonHiddenNodeCount} nodes`) +
+          getLabelWidth(` ${graph.id}    ${nonHiddenNodeCount} nodes`, 12, false) +
           30;
         collectionItem.graphs.push({
           id: graph.id,
@@ -137,7 +134,7 @@ export class GraphSelector {
       if (collectionItem.graphs.length > 0) {
         graphCollectionItems.push(collectionItem);
         const collectionLabelWidth =
-          this.getLabelWidth(collection.label, 12, true) + 30;
+          getLabelWidth(collection.label, 12, true) + 30;
         this.maxGraphItemIdWidth = Math.max(
           collectionLabelWidth,
           this.maxGraphItemIdWidth,
@@ -208,11 +205,18 @@ export class GraphSelector {
   handleGraphSelected() {
     if (this.selectedGraph.value) {
       this.updateSelectedGraphInfo(this.selectedGraph.value.id);
-      this.appService.selectGraphInCurrentPane(this.selectedGraph.value);
+      this.appService.selectGraphInCurrentPane(
+        this.selectedGraph.value,
+        false,
+        undefined,
+        true,
+        false,
+      );
       this.appService.curInitialUiState.set(undefined);
       this.appService.selectNode(this.appService.selectedPaneId(), undefined);
       this.appService.curToLocateNodeInfo.set(undefined);
       this.appService.setFlattenLayersInCurrentPane(false);
+      this.appService.setArchitectureModeInCurrentPane(false);
     }
   }
 
@@ -263,27 +267,6 @@ export class GraphSelector {
 
   get enableExportToResource(): boolean {
     return this.appService.config()?.enableExportToResource === true;
-  }
-
-  private getLabelWidth(label: string, fontSize = 12, bold = false): number {
-    // Check cache first.
-    const key = label;
-    let labelWidth = LABEL_WIDTHS[key];
-    if (labelWidth == null) {
-      // On cache miss, render the text to a offscreen canvas to get its width.
-      const context = CANVAS.getContext(
-        '2d',
-      )! as {} as CanvasRenderingContext2D;
-      context.font = `${fontSize}px "Google Sans Text", Arial, Helvetica, sans-serif`;
-      if (bold) {
-        context.font = `bold ${context.font}`;
-      }
-      const metrics = context.measureText(label);
-      const width = metrics.width;
-      LABEL_WIDTHS[key] = width;
-      labelWidth = width;
-    }
-    return labelWidth;
   }
 
   private updateSelectedGraphInfo(selectedGraphId: string) {

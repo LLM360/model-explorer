@@ -47,6 +47,17 @@ $block_height: 14px;
       border-radius: 5px;
       border: 1px solid var(--me-outline-color);
       background-color: var(--me-surface-color);
+
+      &.data-op {
+        border-color: var(--me-outline-color);
+        background-color: var(--me-surface-color);
+      }
+
+      &.shape-op {
+        border-color: #8d5a00;
+        background-color: #fff4d6;
+        border-width: 2px;
+      }
     }
 
     .group-node-key {
@@ -92,6 +103,37 @@ $block_height: 14px;
       height: $block_height;
       border-radius: 5px;
       border: 2px solid var(--me-outgoing-edge-color);
+    }
+
+    .edge-key {
+      width: $block_width;
+      height: 0;
+      margin-top: calc(#{$block_height} / 2);
+      border-top-style: solid;
+      border-top-color: #80868b;
+      border-top-width: 2px;
+
+      &.normal {
+        border-top-color: #80868b;
+      }
+
+      &.residual {
+        border-top-color: #000000;
+        border-top-width: 4px;
+      }
+
+      &.shape {
+        border-top-color: #f57c00;
+        border-top-style: dashed;
+      }
+
+      &.input {
+        border-top-color: #d93025;
+      }
+
+      &.output {
+        border-top-color: #188038;
+      }
     }
 
     .custom-key {

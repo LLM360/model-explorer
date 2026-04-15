@@ -150,6 +150,24 @@ export class ModelGraphVisualizer implements OnInit, OnDestroy, OnChanges {
       '*',
     );
   };
+  private readonly workerErrorHandler = (event: ErrorEvent) => {
+    console.error('Model Explorer worker failed', event.message, event.error);
+    this.appService.processing.set('');
+    this.snackBar.open(
+      'Graph processing failed in the browser worker. Refresh and retry. If this only happens in Safari, use a Chromium browser while we stabilize Safari support.',
+      'Dismiss',
+      {duration: 10000},
+    );
+  };
+  private readonly workerMessageErrorHandler = () => {
+    console.error('Model Explorer worker failed to deserialize a message');
+    this.appService.processing.set('');
+    this.snackBar.open(
+      'Graph processing failed while transferring data to the browser worker. Refresh and retry.',
+      'Dismiss',
+      {duration: 10000},
+    );
+  };
 
   private readonly visualizerThemeService = inject(VisualizerThemeService);
 
@@ -240,6 +258,12 @@ export class ModelGraphVisualizer implements OnInit, OnDestroy, OnChanges {
         this.syncNavigationModeChanged.next(event);
       });
 
+    this.workerService.worker.addEventListener('error', this.workerErrorHandler);
+    this.workerService.worker.addEventListener(
+      'messageerror',
+      this.workerMessageErrorHandler,
+    );
+
     this.initThreejs();
 
     // Data and functions needed for testing.
@@ -292,24 +316,34 @@ export class ModelGraphVisualizer implements OnInit, OnDestroy, OnChanges {
           paneState.selectedGraphId,
         );
         const flattenLayers = paneState.flattenLayers === true;
+        const architectureMode = paneState.architectureMode === true;
+        const hideShapeNodes = paneState.hideShapeNodes === true;
         if (selectedGraph) {
+          this.appService.setHideShapeNodesInCurrentPane(hideShapeNodes);
           this.appService.selectGraphInCurrentPane(
             selectedGraph,
             flattenLayers,
             undefined,
             initialLayout,
+            architectureMode,
+            hideShapeNodes,
           );
         } else {
           // Fall back to first graph.
           const firstGraph = this.graphCollections[0].graphs[0];
+          this.appService.setHideShapeNodesInCurrentPane(hideShapeNodes);
           this.appService.selectGraphInCurrentPane(
             firstGraph,
             flattenLayers,
             undefined,
             initialLayout,
+            architectureMode,
+            hideShapeNodes,
           );
         }
         this.appService.setFlattenLayersInCurrentPane(flattenLayers);
+        this.appService.setArchitectureModeInCurrentPane(architectureMode);
+        this.appService.setHideShapeNodesInCurrentPane(hideShapeNodes);
       }
       // Two panes.
       else if (this.initialUiState.paneStates.length === 2) {
@@ -320,31 +354,63 @@ export class ModelGraphVisualizer implements OnInit, OnDestroy, OnChanges {
           pane0.selectedGraphId,
         );
         const flattenLayers0 = pane0.flattenLayers === true;
+        const architectureMode0 = pane0.architectureMode === true;
+        const hideShapeNodes0 = pane0.hideShapeNodes === true;
+        this.appService.setHideShapeNodesInCurrentPane(hideShapeNodes0);
         if (selectedGraph0) {
           this.appService.selectGraphInCurrentPane(
             selectedGraph0,
             flattenLayers0,
+            undefined,
+            true,
+            architectureMode0,
+            hideShapeNodes0,
           );
         } else {
           // Fall back to first graph.
           const firstGraph = this.graphCollections[0].graphs[0];
-          this.appService.selectGraphInCurrentPane(firstGraph, flattenLayers0);
+          this.appService.selectGraphInCurrentPane(
+            firstGraph,
+            flattenLayers0,
+            undefined,
+            true,
+            architectureMode0,
+            hideShapeNodes0,
+          );
         }
         this.appService.setFlattenLayersInCurrentPane(flattenLayers0);
+        this.appService.setArchitectureModeInCurrentPane(architectureMode0);
+        this.appService.setHideShapeNodesInCurrentPane(hideShapeNodes0);
 
         // Add graph in pane1.
         const pane1 = this.initialUiState.paneStates[1];
         const flattenLayers1 = pane1.flattenLayers === true;
+        const architectureMode1 = pane1.architectureMode === true;
+        const hideShapeNodes1 = pane1.hideShapeNodes === true;
         const selectedGraph1 = this.findGraphFromCollections(
           pane1.selectedCollectionLabel,
           pane1.selectedGraphId,
         );
         if (selectedGraph1) {
-          this.appService.openGraphInSplitPane(selectedGraph1, flattenLayers1);
+          this.appService.openGraphInSplitPane(
+            selectedGraph1,
+            flattenLayers1,
+            true,
+            false,
+            architectureMode1,
+            hideShapeNodes1,
+          );
         } else {
           // Fall back to first graph.
           const firstGraph = this.graphCollections[0].graphs[0];
-          this.appService.openGraphInSplitPane(firstGraph, flattenLayers1);
+          this.appService.openGraphInSplitPane(
+            firstGraph,
+            flattenLayers1,
+            true,
+            false,
+            architectureMode1,
+            hideShapeNodes1,
+          );
         }
 
         // Select pane.
@@ -833,6 +899,14 @@ export class ModelGraphVisualizer implements OnInit, OnDestroy, OnChanges {
       'mousedown',
       this.mouseDownHandler,
       true,
+    );
+    this.workerService.worker.removeEventListener(
+      'error',
+      this.workerErrorHandler,
+    );
+    this.workerService.worker.removeEventListener(
+      'messageerror',
+      this.workerMessageErrorHandler,
     );
   }
 }

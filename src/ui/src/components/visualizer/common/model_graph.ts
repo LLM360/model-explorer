@@ -94,7 +94,7 @@ export declare interface ModelGraph {
    * A map from the id of a group to the edges of its
    * NS children nodes (fromNodeId -> targetNodeIds).
    */
-  layoutGraphEdges: Record<string, Record<string, Record<string, boolean>>>;
+  layoutGraphEdges: Record<string, Record<string, Record<string, EdgeStyleData>>>;
 
   /** Layout-related configs. */
   layoutConfigs?: LayoutConfigs;
@@ -275,15 +275,23 @@ export declare interface GroupNode extends ModelNodeBase {
    */
   sectionContainer?: boolean;
 
-  /** The op node that should be pinned to the top of the group. */
-  pinToTopOpNode?: OpNode;
+  /** The op nodes that should be pinned to the top of the group. */
+  pinToTopOpNodes?: OpNode[];
 
-  /** The op node that should be pinned to the bottom of the group. */
-  pinToBottomOpNode?: OpNode;
+  /** The op nodes that should be pinned to the bottom of the group. */
+  pinToBottomOpNodes?: OpNode[];
 }
 
 /** A node in a model graph. */
 export type ModelNode = OpNode | GroupNode;
+
+export type EdgeColorRole = 'data' | 'input' | 'output';
+
+export declare interface EdgeStyleData {
+  colorRole: EdgeColorRole;
+  isResidual: boolean;
+  isShape: boolean;
+}
 
 /** An edge in a model graph, */
 export declare interface ModelEdge {
@@ -291,6 +299,9 @@ export declare interface ModelEdge {
   fromNodeId: string;
   toNodeId: string;
   points: Point[];
+  edgeColorRole?: EdgeColorRole;
+  edgeIsResidual?: boolean;
+  edgeIsShape?: boolean;
 
   // The following are for webgl rendering.
   curvePoints?: Point[];

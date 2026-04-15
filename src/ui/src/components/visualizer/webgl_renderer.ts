@@ -103,7 +103,6 @@ import {
   processNodeStylerRules,
   splitLabel,
   splitNamespace,
-  wrapLabel,
 } from './common/utils';
 import {
   ExpandOrCollapseGroupNodeRequest,
@@ -165,9 +164,15 @@ const SELECTED_NODE_BORDER_WIDTH = 2;
 const IO_HIGHLIGHT_BORDER_WIDTH = 1.5;
 const ZOOM_FIT_ON_NODE_DURATION = 400;
 const EDGE_WIDTH = 1.0;
+const RESIDUAL_EDGE_WIDTH = 3.0;
 const SUBGRAPH_INDICATOR_SIZE = 14;
 const MAX_PNG_SIZE = 5000;
 const MAX_SHAKE_DISTANCE = 6;
+const DATA_EDGE_COLOR = '#80868b';
+const INPUT_EDGE_COLOR = '#d93025';
+const OUTPUT_EDGE_COLOR = '#188038';
+const RESIDUAL_EDGE_COLOR = '#000000';
+const SHAPE_EDGE_COLOR = '#f57c00';
 
 // The following offsets define the rendering order of the elements on top of
 // the node body. They should be between 0 and WEBGL_ELEMENT_Y_FACTOR.
@@ -179,6 +184,21 @@ const SUBGRAPH_INDICATOR_LABEL_Y_OFFSET = WEBGL_ELEMENT_Y_FACTOR * 0.4;
 const NODE_ID_WITHOUT_ZOOMFIT = '______';
 
 const THREE = three;
+const EDGE_COLOR_ROLES = ['data', 'input', 'output'] as const;
+const EDGE_STYLE_KEYS = [
+  'data',
+  'input',
+  'output',
+  'residual-data',
+  'residual-input',
+  'residual-output',
+  'shape-data',
+  'shape-input',
+  'shape-output',
+  'residual-shape-data',
+  'residual-shape-input',
+  'residual-shape-output',
+] as const;
 
 interface TriggerData {
   top: number;
@@ -194,6 +214,9 @@ interface RenderGraphOptions {
   skipReRenderEdgeTexts?: boolean;
   forceDisableSvgTextRenderer?: boolean;
 }
+
+type EdgeColorRole = (typeof EDGE_COLOR_ROLES)[number];
+type EdgeStyleKey = (typeof EDGE_STYLE_KEYS)[number];
 
 /** A graph renderer that uses threejs/webgl for high-performance rendering */
 @Component({
@@ -354,7 +377,8 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
     this.visualizerThemeService,
   );
   private readonly subgraphIndicatorIcons = new WebglTexts(this.threejsService);
-  private readonly edges = new WebglEdges(EDGE_WIDTH);
+  private readonly edgesByStyle: Record<EdgeStyleKey, WebglEdges> =
+    this.createEdgeRenderers();
   readonly texts = new WebglTexts(this.threejsService);
   private readonly mousePos = new THREE.Vector2();
   private readonly syncNavigationRelatedNodesHighlights!: WebglRendererHighlightNodesService;
@@ -494,7 +518,7 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
     this.webglRendererSearchResultsService.init(this);
     this.webglRendererSnapshotService.init(this);
     this.webglRendererSubgraphSelectionService.init(this);
-    this.webglRendererThreejsService.init(this, this.appService.config());
+    this.webglRendererThreejsService.init(this);
     this.syncNavigationRelatedNodesHighlights =
       new WebglRendererHighlightNodesService(
         this,
@@ -2243,13 +2267,15 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
       }
     }
     if (options?.skipReRenderEdges) {
-      const edgesMesh = this.edges.edgesMesh;
-      if (edgesMesh) {
-        extraMeshesToSkip.push(edgesMesh);
-      }
-      const arrowHeadsMesh = this.edges.arrowHeadsMesh;
-      if (arrowHeadsMesh) {
-        extraMeshesToSkip.push(arrowHeadsMesh);
+      for (const edgeRenderer of Object.values(this.edgesByStyle)) {
+        const edgesMesh = edgeRenderer.edgesMesh;
+        if (edgesMesh) {
+          extraMeshesToSkip.push(edgesMesh);
+        }
+        const arrowHeadsMesh = edgeRenderer.arrowHeadsMesh;
+        if (arrowHeadsMesh) {
+          extraMeshesToSkip.push(arrowHeadsMesh);
+        }
       }
     }
     this.clearScene(extraMeshesToSkip);
@@ -2446,15 +2472,26 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
       });
 
       // Render separator between the pinned node and the rest of the nodes.
-      if (isGroupNode(node) && node.expanded && node.pinToTopOpNode) {
+      if (
+        isGroupNode(node) &&
+        node.expanded &&
+        (node.pinToTopOpNodes || []).length > 0
+      ) {
+        const pinToTopOpNodes = node.pinToTopOpNodes || [];
         nodeBodyRectangles.push({
           id: `${node.id}_pin_to_top_separator`,
           index: nodeBodyRectangles.length,
           bound: {
             x: x + width / 2,
             y:
-              (node.pinToTopOpNode.globalY || 0) +
-              (node.pinToTopOpNode.height || 0) / 2 +
+              Math.max(
+                ...pinToTopOpNodes.map(
+                  (pinNode) =>
+                    (pinNode.y || 0) +
+                    (pinNode.globalY || 0) +
+                    (pinNode.height || 0),
+                ),
+              ) +
               12.5,
             width: width - LAYOUT_MARGIN_X * 2,
             height: 1,
@@ -2469,15 +2506,23 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
       }
 
       // Render separator between the pinned node and the rest of the nodes.
-      if (isGroupNode(node) && node.expanded && node.pinToBottomOpNode) {
+      if (
+        isGroupNode(node) &&
+        node.expanded &&
+        (node.pinToBottomOpNodes || []).length > 0
+      ) {
+        const pinToBottomOpNodes = node.pinToBottomOpNodes || [];
         nodeBodyRectangles.push({
           id: `${node.id}_pin_to_bottom_separator`,
           index: nodeBodyRectangles.length,
           bound: {
             x: x + width / 2,
             y:
-              (node.pinToBottomOpNode.globalY || 0) -
-              (node.pinToBottomOpNode.height || 0) / 2 -
+              Math.min(
+                ...pinToBottomOpNodes.map(
+                  (pinNode) => (pinNode.y || 0) + (pinNode.globalY || 0),
+                ),
+              ) -
               12.5,
             width: width - LAYOUT_MARGIN_X * 2,
             height: 1,
@@ -2553,19 +2598,12 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
 
         // Expand icon.
         const iconZ = y + this.getNodeLabelRelativeY(node) + 18.5;
-        let leftIconX = 0;
-        let rightIconX = 0;
-        if (this.appService.config()?.maxNodeLabelWidth) {
-          leftIconX = x + 12;
-          rightIconX = x + width - 12;
-        } else {
-          leftIconX = node.expanded
-            ? labelLeft - 13
-            : (x + labelLeft + 1) / 2 + 1;
-          rightIconX = node.expanded
-            ? labelRight + 12
-            : (x + width + labelRight - 1) / 2 - 1;
-        }
+        const leftIconX = node.expanded
+          ? labelLeft - 13
+          : (x + labelLeft + 1) / 2 + 1;
+        const rightIconX = node.expanded
+          ? labelRight + 12
+          : (x + width + labelRight - 1) / 2 - 1;
         groupNodeIcons.push({
           id: node.id,
           nodeId: node.id,
@@ -2726,20 +2764,17 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
           }
         }
       }
-      const edgeColorInConfig =
-        this.appService.theme() === 'light'
-          ? this.appService.config()?.edgeColor
-          : this.appService.config()?.edgeColorDarkMode;
-      this.edges.generateMesh(
-        new THREE.Color(
-          edgeColorInConfig ??
-            this.visualizerThemeService.getColor(ColorVariable.EDGE_COLOR),
-        ),
-        this.edgesToRender,
-        this.curModelGraph,
-      );
-      this.webglRendererThreejsService.addToScene(this.edges.edgesMesh);
-      this.webglRendererThreejsService.addToScene(this.edges.arrowHeadsMesh);
+      const edgesByStyle = this.groupEdgesToRenderByStyle(this.edgesToRender);
+      for (const edgeStyleKey of EDGE_STYLE_KEYS) {
+        const edgeRenderer = this.edgesByStyle[edgeStyleKey];
+        edgeRenderer.generateMesh(
+          new THREE.Color(this.getEdgeStyleColor(edgeStyleKey)),
+          edgesByStyle[edgeStyleKey],
+          this.curModelGraph,
+        );
+        this.webglRendererThreejsService.addToScene(edgeRenderer.edgesMesh);
+        this.webglRendererThreejsService.addToScene(edgeRenderer.arrowHeadsMesh);
+      }
     }
   }
 
@@ -2792,19 +2827,7 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
 
       // Font size.
       const labelHeight = getNodeLabelHeight(node, this.appService.config());
-      let lines: string[] = [];
-      const config = this.appService.config();
-      if (config?.maxNodeLabelWidth) {
-        lines = wrapLabel(
-          this.getNodeLabel(node),
-          config.maxNodeLabelWidth,
-          labelHeight,
-          !isOpNode(node),
-        );
-      } else {
-        lines = splitLabel(this.getNodeLabel(node));
-      }
-
+      const lines = splitLabel(this.getNodeLabel(node));
       for (let i = 0; i < lines.length; i++) {
         const curLineLabel = lines[i];
         labels.push({
@@ -2886,7 +2909,9 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
     this.webglRendererNdpService.updateAnimationProgress(t);
     this.artificialGroupBorders.updateAnimationProgress(t);
     if (!options?.skipReRenderEdges) {
-      this.edges.updateAnimationProgress(t);
+      for (const edgeRenderer of Object.values(this.edgesByStyle)) {
+        edgeRenderer.updateAnimationProgress(t);
+      }
     }
   }
 
@@ -3033,10 +3058,14 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
     this.groupNodeIcons.restoreOpacities();
     this.webglRendererAttrsTableService.attrsTableTexts.restoreOpacities();
     if (selectedNodeIdChanged || ioTracingDataChanged) {
-      this.edges.restoreColors();
+      for (const edgeRenderer of Object.values(this.edgesByStyle)) {
+        edgeRenderer.restoreColors();
+      }
       this.webglRendererIdenticalLayerService.restoreOpacity();
     }
-    this.edges.restoreYOffsets();
+    for (const edgeRenderer of Object.values(this.edgesByStyle)) {
+      edgeRenderer.restoreYOffsets();
+    }
 
     const node = this.curModelGraph.nodesById[this.selectedNodeId];
 
@@ -3168,7 +3197,9 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
       ...this.webglRendererIoHighlightService.outputsRenderedEdges,
     ].map((edge) => edge.id);
     ids.push(...this.renderedEdgeIdsToHide);
-    this.edges.updateYOffsets(ids, 1000);
+    for (const edgeRenderer of Object.values(this.edgesByStyle)) {
+      edgeRenderer.updateYOffsets(ids, 1000);
+    }
 
     // Node data provider.
     //
@@ -3232,12 +3263,95 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
             ),
         )
         .map(({edge}) => edge.id);
-      this.edges.updateColors(
-        edgeIdsToDim,
-        new THREE.Color(
-          this.visualizerThemeService.getColor(ColorVariable.EDGE_DIMMED_COLOR),
+      for (const edgeRenderer of Object.values(this.edgesByStyle)) {
+        edgeRenderer.updateColors(
+          edgeIdsToDim,
+          new THREE.Color(
+            this.visualizerThemeService.getColor(ColorVariable.EDGE_DIMMED_COLOR),
+          ),
+        );
+      }
+    }
+  }
+
+  private groupEdgesToRenderByStyle(
+    edgesToRender: Array<{edge: ModelEdge; index: number}>,
+  ): Record<EdgeStyleKey, Array<{edge: ModelEdge; index: number}>> {
+    const grouped = Object.fromEntries(
+      EDGE_STYLE_KEYS.map((edgeStyleKey) => [edgeStyleKey, []]),
+    ) as unknown as Record<EdgeStyleKey, Array<{edge: ModelEdge; index: number}>>;
+    for (const edgeToRender of edgesToRender) {
+      grouped[this.getEdgeStyleKey(edgeToRender.edge)].push(edgeToRender);
+    }
+    return grouped;
+  }
+
+  private createEdgeRenderers(): Record<EdgeStyleKey, WebglEdges> {
+    return Object.fromEntries(
+      EDGE_STYLE_KEYS.map((edgeStyleKey) => [
+        edgeStyleKey,
+        new WebglEdges(
+          this.isResidualEdgeStyle(edgeStyleKey) ? RESIDUAL_EDGE_WIDTH : EDGE_WIDTH,
+          1,
+          this.isShapeEdgeStyle(edgeStyleKey),
         ),
-      );
+      ]),
+    ) as unknown as Record<EdgeStyleKey, WebglEdges>;
+  }
+
+  private getEdgeStyleKey(edge: ModelEdge): EdgeStyleKey {
+    const parts: string[] = [];
+    if (edge.edgeIsResidual) {
+      parts.push('residual');
+    }
+    if (edge.edgeIsShape) {
+      parts.push('shape');
+    }
+    parts.push(this.getEdgeColorRole(edge));
+    return parts.join('-') as EdgeStyleKey;
+  }
+
+  private getEdgeColorRole(edge: ModelEdge): EdgeColorRole {
+    switch (edge.edgeColorRole) {
+      case 'input':
+      case 'output':
+        return edge.edgeColorRole;
+      default:
+        return 'data';
+    }
+  }
+
+  private isResidualEdgeStyle(edgeStyleKey: EdgeStyleKey): boolean {
+    return edgeStyleKey.includes('residual');
+  }
+
+  private isShapeEdgeStyle(edgeStyleKey: EdgeStyleKey): boolean {
+    return edgeStyleKey.includes('shape');
+  }
+
+  private getEdgeStyleColor(edgeStyleKey: EdgeStyleKey): string {
+    const colorRole = edgeStyleKey.endsWith('-input')
+      ? 'input'
+      : edgeStyleKey.endsWith('-output')
+        ? 'output'
+        : edgeStyleKey === 'input'
+          ? 'input'
+          : edgeStyleKey === 'output'
+            ? 'output'
+            : 'data';
+    switch (colorRole) {
+      case 'input':
+        return INPUT_EDGE_COLOR;
+      case 'output':
+        return OUTPUT_EDGE_COLOR;
+      default:
+        if (this.isShapeEdgeStyle(edgeStyleKey)) {
+          return SHAPE_EDGE_COLOR;
+        }
+        if (this.isResidualEdgeStyle(edgeStyleKey)) {
+          return RESIDUAL_EDGE_COLOR;
+        }
+        return DATA_EDGE_COLOR;
     }
   }
 
@@ -3366,7 +3480,11 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
     link.download = 'model_explorer_graph.png';
     setAnchorHref(link, canvas.toDataURL());
     link.click();
-    this.webglRendererThreejsService.updateSceneBackground();
+    this.webglRendererThreejsService.setSceneBackground(
+      new THREE.Color(
+        this.visualizerThemeService.getColor(ColorVariable.SURFACE_COLOR),
+      ),
+    );
   }
 
   private async openSubgraph(subgraphId: string) {
@@ -3389,9 +3507,10 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
     // Open the subgraph in current pane.
     this.appService.selectNode(this.paneId, undefined);
     this.appService.setFlattenLayersInCurrentPane(false);
+    this.appService.setArchitectureModeInCurrentPane(false);
     this.appService.curInitialUiState.set(undefined);
     this.appService.curToLocateNodeInfo.set(undefined);
-    this.appService.selectGraphInCurrentPane(graph);
+    this.appService.selectGraphInCurrentPane(graph, false, undefined, true, false);
   }
 
   private getGroupNodeLabelSeparatorId(
@@ -3901,16 +4020,16 @@ export class WebglRenderer implements OnInit, OnChanges, OnDestroy {
               nodeId: node.id,
               borderWidth:
                 paneIndex === 0
-                  ? (curSyncNavigationData?.deletedNodesBorderWidth ??
-                    DEFAULT_HIGHLIGHT_NODES_BORDER_WIDTH)
-                  : (curSyncNavigationData?.newNodesBorderWidth ??
-                    DEFAULT_HIGHLIGHT_NODES_BORDER_WIDTH),
+                  ? curSyncNavigationData?.deletedNodesBorderWidth ??
+                    DEFAULT_HIGHLIGHT_NODES_BORDER_WIDTH
+                  : curSyncNavigationData?.newNodesBorderWidth ??
+                    DEFAULT_HIGHLIGHT_NODES_BORDER_WIDTH,
               borderColor:
                 paneIndex === 0
-                  ? (curSyncNavigationData?.deletedNodesBorderColor ??
-                    DEFAULT_DELETE_NODES_BORDER_COLOR)
-                  : (curSyncNavigationData?.newNodesBorderColor ??
-                    DEFAULT_NEW_NODES_BORDER_COLOR),
+                  ? curSyncNavigationData?.deletedNodesBorderColor ??
+                    DEFAULT_DELETE_NODES_BORDER_COLOR
+                  : curSyncNavigationData?.newNodesBorderColor ??
+                    DEFAULT_NEW_NODES_BORDER_COLOR,
             };
           }
         }

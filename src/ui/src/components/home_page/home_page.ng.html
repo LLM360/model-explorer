@@ -34,12 +34,12 @@ limitations under the License.
           (click)="handleClickSettings()">
         <mat-icon>settings</mat-icon>
       </button>
-      <a href="https://github.com/google-ai-edge/model-explorer" target="_blank">
+      <a href="https://github.com/LLM360/model-explorer" target="_blank">
         <button mat-icon-button aria-label="doc" matTooltip="GitHub">
           <mat-icon>article</mat-icon>
         </button>
       </a>
-      <a href="https://github.com/google-ai-edge/model-explorer/issues" target="_blank">
+      <a href="https://github.com/LLM360/model-explorer/issues" target="_blank">
         <button mat-icon-button aria-label="bug"
             matTooltip="File issue or feature request">
           <mat-icon>bug_report</mat-icon>
@@ -82,8 +82,12 @@ limitations under the License.
       </div>
     } @else {
       <div class="model-source-input-container">
-        <model-source-input #modelSourceInput></model-source-input>
+        <radiance-source-input #radianceSourceInput></radiance-source-input>
       </div>
+      <details class="compat-loader">
+        <summary>Model Explorer compatibility loader</summary>
+        <model-source-input #modelSourceInput></model-source-input>
+      </details>
     }
 
     <div class="padding"></div>

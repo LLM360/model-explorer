@@ -118,6 +118,54 @@ limitations under the License.
         </ng-template>
       }
 
+      <!-- Architecture mode -->
+      @if (showArchitectureMode) {
+        <div class="mat-icon-container architecture-mode"
+            [bubble]="helpArchitectureMode"
+            [overlaySize]="helpPopupSize"
+            [hoverDelayMs]="10"
+            [class.enabled]="architectureMode()"
+            (click)="handleClickArchitectureMode()">
+          <mat-icon class="toolbar-icon architecture-mode">account_tree</mat-icon>
+        </div>
+        <div class="vertical-divider"></div>
+        <ng-template #helpArchitectureMode>
+          <div class="model-explorer-help-popup">
+            Compact repeated blocks into architecture mode
+            <div class="description">
+              Repeated numbered block families are merged into representative
+              subtrees labeled as <code>&lt;name&gt; x &lt;count&gt;</code>
+            </div>
+          </div>
+        </ng-template>
+      }
+
+      <!-- Hide shape nodes -->
+      @if (showHideShapeNodes) {
+        <div class="mat-icon-container hide-shape-nodes"
+            [bubble]="helpHideShapeNodes"
+            [overlaySize]="helpPopupSize"
+            [hoverDelayMs]="10"
+            [class.enabled]="hideShapeNodes()"
+            (click)="handleClickHideShapeNodes()">
+          <mat-icon class="toolbar-icon hide-shape-nodes">shape</mat-icon>
+        </div>
+        <div class="vertical-divider"></div>
+        <ng-template #helpHideShapeNodes>
+          <div class="model-explorer-help-popup">
+            @if (hideShapeNodes()) {
+              Show shape nodes
+            } @else {
+              Hide shape nodes
+            }
+            <div class="description">
+              Shape nodes are classified from tensor-tag metadata and shape-only
+              edge flow, then removed from the rendered layout
+            </div>
+          </div>
+        </ng-template>
+      }
+
       <!-- Trace IO -->
       <div class="mat-icon-container trace-io"
           [bubble]="helpTraceIO"

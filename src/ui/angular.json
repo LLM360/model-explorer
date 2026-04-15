@@ -41,6 +41,12 @@
             "production": {
               "outputHashing": "all"
             },
+            "container": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": false,
+              "outputHashing": "none"
+            },
             "development": {
               "optimization": false,
               "extractLicenses": false,

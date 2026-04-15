@@ -179,7 +179,17 @@ $card_width: 1016px;
       margin-top: 20px;
       overflow: hidden;
       z-index: 100;
-      background-color: var(--me-surface-bg-color);
+    }
+
+    .compat-loader {
+      width: $card_width;
+      margin-top: 16px;
+      color: var(--me-on-surface-variant-color);
+
+      summary {
+        cursor: pointer;
+        padding: 6px 4px 10px;
+      }
     }
 
     .padding {

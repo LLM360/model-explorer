@@ -65,6 +65,8 @@ self.addEventListener('message', (event: Event) => {
         workerEvent.config,
         workerEvent.groupNodeChildrenCountThreshold,
         workerEvent.flattenLayers,
+        workerEvent.architectureMode,
+        workerEvent.hideShapeNodes,
         workerEvent.keepLayersWithASingleChild,
         workerEvent.initialLayout,
       );
@@ -227,6 +229,8 @@ function handleProcessGraph(
   config?: VisualizerConfig,
   groupNodeChildrenCountThreshold?: number,
   flattenLayers?: boolean,
+  architectureMode?: boolean,
+  hideShapeNodes?: boolean,
   keepLayersWithASingleChild?: boolean,
   initialLayout?: boolean,
 ): ModelGraph {
@@ -242,6 +246,8 @@ function handleProcessGraph(
     groupNodeChildrenCountThreshold,
     false,
     flattenLayers,
+    architectureMode,
+    hideShapeNodes,
     keepLayersWithASingleChild,
   );
   const modelGraph = processor.process();

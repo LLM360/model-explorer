@@ -31,6 +31,9 @@ precision highp float;
 
 uniform float edgeWidth;
 uniform float animationProgress;
+uniform float dashEnabled;
+uniform float dashSize;
+uniform float gapSize;
 
 attribute vec4 endPoints;
 attribute vec4 targetEndPoints;
@@ -38,6 +41,10 @@ attribute vec3 color;
 attribute float yOffset;
 
 varying vec3 vColor;
+varying float vDistance;
+varying float vDashEnabled;
+varying float vDashSize;
+varying float vGapSize;
 
 float atan2(in float y, in float x) {
   bool s = (abs(x) > abs(y));
@@ -46,6 +53,9 @@ float atan2(in float y, in float x) {
 
 void main() {
   vColor = color;
+  vDashEnabled = dashEnabled;
+  vDashSize = dashSize;
+  vGapSize = gapSize;
 
   vec3 pos = position;
 
@@ -67,6 +77,7 @@ void main() {
   float length = distance(vec2(startX, startY), vec2(endX, endY));
   pos.x = (step(0.0, pos.x) * 2.0 - 1.0) * (edgeWidth / 2.0);
   pos.z = (step(0.0, pos.z) * 2.0 - 1.0) * (length / 2.0);
+  vDistance = pos.z + length / 2.0;
 
   float angle = PI / 2.0 - atan2(endY - startY, endX - startX);
   float c = cos(angle);
@@ -89,8 +100,18 @@ const EDGE_SEGMENT_FRAGMENT_SHADER = `
 precision highp float;
 
 varying vec3 vColor;
+varying float vDistance;
+varying float vDashEnabled;
+varying float vDashSize;
+varying float vGapSize;
 
 void main() {
+  if (vDashEnabled > 0.5) {
+    float period = vDashSize + vGapSize;
+    if (period > 0.0 && mod(vDistance, period) > vDashSize) {
+      discard;
+    }
+  }
   gl_FragColor = vec4(vColor, 1.0);
 }
 `;
@@ -201,6 +222,9 @@ export class WebglEdges {
   constructor(
     private readonly edgeWidth: number,
     private readonly arrowScale = 1,
+    private readonly dashed = false,
+    private readonly dashSize = 10,
+    private readonly gapSize = 6,
   ) {
     this.planeGeo = new THREE.PlaneGeometry(1, 1);
     this.planeGeo.rotateX(-Math.PI / 2);
@@ -209,6 +233,9 @@ export class WebglEdges {
       uniforms: {
         'edgeWidth': {value: this.edgeWidth},
         'animationProgress': this.curAnimationProgrssUniform,
+        'dashEnabled': {value: this.dashed ? 1 : 0},
+        'dashSize': {value: this.dashSize},
+        'gapSize': {value: this.gapSize},
       },
       vertexShader: EDGE_SEGMENT_VERTEX_SHADER,
       fragmentShader: EDGE_SEGMENT_FRAGMENT_SHADER,

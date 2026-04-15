@@ -17,7 +17,7 @@
  */
 
 import {LAYOUT_MARGIN_X} from '../common/consts';
-import {GroupNode, ModelGraph, OpNode} from '../common/model_graph';
+import {GroupNode, ModelGraph} from '../common/model_graph';
 import {
   NodeDataProviderRunData,
   Rect,
@@ -27,7 +27,6 @@ import {
   getDeepestExpandedGroupNodeIds,
   getLayoutMarginTop,
   getMultiLineLabelExtraHeight,
-  getNodeLabelHeight,
   getNodeLabelLineHeight,
   isGroupNode,
   splitLabel,
@@ -452,48 +451,6 @@ export class GraphExpander {
         if (extraLabelHeight > 0) {
           node.globalY += extraLabelHeight;
         }
-
-        // Move the node down if the current group node has a node pinned to
-        // top.
-        if (
-          groupNode.pinToTopOpNode &&
-          node.id !== groupNode.pinToTopOpNode.id
-        ) {
-          node.globalY += this.getPinToTopNodeVerticalSpace(
-            groupNode.pinToTopOpNode,
-          );
-        }
-
-        // For the pinned-to-top node, move it to the top-middle of the group
-        // node.
-        if (groupNode.pinToTopOpNode?.id === node.id) {
-          node.globalX =
-            (groupNode.x || 0) +
-            (groupNode.globalX || 0) +
-            (groupNode.width || 0) / 2;
-          node.globalY =
-            (groupNode.y || 0) +
-            (groupNode.globalY || 0) +
-            (node.localOffsetY || 0) +
-            this.getPinToTopNodeVerticalSpace(node as OpNode) -
-            (node.height || 0) / 2 +
-            10;
-        }
-
-        // For the pinned-to-bottom node, move it to the bottom-middle of the
-        // group node.
-        if (groupNode.pinToBottomOpNode?.id === node.id) {
-          node.globalX =
-            (groupNode.x || 0) +
-            (groupNode.globalX || 0) +
-            (groupNode.width || 0) / 2;
-          node.globalY =
-            (groupNode.y || 0) +
-            (groupNode.globalY || 0) +
-            (groupNode.height || 0) -
-            (node.height || 0) / 2 -
-            10;
-        }
       }
       if (isGroupNode(node)) {
         this.updateNodeOffset(node);
@@ -528,30 +485,16 @@ export class GraphExpander {
     }
   }
 
-  private getPinToTopNodeVerticalSpace(node: OpNode): number {
-    return (node.height || 0) + (getNodeLabelHeight(node, this.config) * 2 - 2);
-  }
-
   private getTargetGroupNodeHeight(rect: Rect, groupNode: GroupNode): number {
     const extraMultiLineLabelHeight = getMultiLineLabelExtraHeight(
       groupNode,
       this.config,
     );
-    let targetHeight =
+    return (
       rect.height +
       getLayoutMarginTop(groupNode, this.config) +
       LAYOUT_MARGIN_BOTTOM +
-      extraMultiLineLabelHeight;
-    if (groupNode.pinToTopOpNode) {
-      targetHeight += this.getPinToTopNodeVerticalSpace(
-        groupNode.pinToTopOpNode,
-      );
-    }
-    if (groupNode.pinToBottomOpNode) {
-      targetHeight += this.getPinToTopNodeVerticalSpace(
-        groupNode.pinToBottomOpNode,
-      );
-    }
-    return targetHeight;
+      extraMultiLineLabelHeight
+    );
   }
 }

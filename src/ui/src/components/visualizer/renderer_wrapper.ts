@@ -147,6 +147,56 @@ export class RendererWrapper {
     this.appService.processGraph(
       this.paneId,
       this.appService.getFlattenLayers(this.paneId),
+      undefined,
+      true,
+      this.appService.getArchitectureMode(this.paneId),
+    );
+
+    // Clear init graph state.
+    this.appService.curInitialUiState.set(undefined);
+  }
+
+  handleClickArchitectureMode() {
+    const selectedNodeId = this.appService.getPaneById(this.paneId)
+      ?.selectedNodeInfo?.nodeId;
+    if (
+      selectedNodeId != null &&
+      isGroupNode(this.modelGraph.nodesById[selectedNodeId])
+    ) {
+      this.appService.selectNode(this.paneId, undefined);
+    }
+
+    this.appService.toggleArchitectureMode(this.paneId);
+    this.appService.processGraph(
+      this.paneId,
+      this.appService.getFlattenLayers(this.paneId),
+      undefined,
+      true,
+      this.appService.getArchitectureMode(this.paneId),
+    );
+
+    // Clear init graph state.
+    this.appService.curInitialUiState.set(undefined);
+  }
+
+  handleClickHideShapeNodes() {
+    const selectedNodeId = this.appService.getPaneById(this.paneId)
+      ?.selectedNodeInfo?.nodeId;
+    if (
+      selectedNodeId != null &&
+      isGroupNode(this.modelGraph.nodesById[selectedNodeId])
+    ) {
+      this.appService.selectNode(this.paneId, undefined);
+    }
+
+    this.appService.toggleHideShapeNodes(this.paneId);
+    this.appService.processGraph(
+      this.paneId,
+      this.appService.getFlattenLayers(this.paneId),
+      undefined,
+      true,
+      this.appService.getArchitectureMode(this.paneId),
+      this.appService.getHideShapeNodes(this.paneId),
     );
 
     // Clear init graph state.
@@ -197,6 +247,17 @@ export class RendererWrapper {
     );
   }
 
+  get showArchitectureMode(): boolean {
+    return (
+      !this.inPopup &&
+      this.appService.config()?.toolbarConfig?.hideArchitectureMode !== true
+    );
+  }
+
+  get showHideShapeNodes(): boolean {
+    return !this.inPopup;
+  }
+
   get showDownloadPng(): boolean {
     return !this.inPopup;
   }
@@ -217,7 +278,18 @@ export class RendererWrapper {
   }
 
   get disableExpandCollapseAllButton(): boolean {
-    return this.appService.getFlattenLayers(this.paneId);
+    return (
+      this.appService.getFlattenLayers(this.paneId) ||
+      this.appService.getArchitectureMode(this.paneId)
+    );
+  }
+
+  architectureMode(): boolean {
+    return this.appService.getArchitectureMode(this.paneId);
+  }
+
+  hideShapeNodes(): boolean {
+    return this.appService.getHideShapeNodes(this.paneId);
   }
 
   get tracing(): boolean {

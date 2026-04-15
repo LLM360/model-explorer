@@ -132,6 +132,12 @@ export class WebglRendererSnapshotService {
     const flattenLayers = this.webglRenderer.appService.getFlattenLayers(
       this.webglRenderer.paneId,
     );
+    const architectureMode = this.webglRenderer.appService.getArchitectureMode(
+      this.webglRenderer.paneId,
+    );
+    const hideShapeNodes = this.webglRenderer.appService.getHideShapeNodes(
+      this.webglRenderer.paneId,
+    );
 
     // Create snapshot.
     const snapshot: SnapshotData = {
@@ -145,6 +151,8 @@ export class WebglRendererSnapshotService {
         ? {...this.webglRenderer.curShowOnEdgeItem}
         : undefined,
       flattenLayers,
+      architectureMode,
+      hideShapeNodes,
     };
 
     return snapshot;
@@ -191,14 +199,35 @@ export class WebglRendererSnapshotService {
       this.webglRenderer.paneId,
     );
     const snapshotFlattenLayers = snapshot.flattenLayers === true;
-    if (curFlattenLayers !== snapshotFlattenLayers) {
+    const curArchitectureMode = this.webglRenderer.appService.getArchitectureMode(
+      this.webglRenderer.paneId,
+    );
+    const snapshotArchitectureMode = snapshot.architectureMode === true;
+    const curHideShapeNodes = this.webglRenderer.appService.getHideShapeNodes(
+      this.webglRenderer.paneId,
+    );
+    const snapshotHideShapeNodes = snapshot.hideShapeNodes === true;
+    if (
+      curFlattenLayers !== snapshotFlattenLayers ||
+      curArchitectureMode !== snapshotArchitectureMode ||
+      curHideShapeNodes !== snapshotHideShapeNodes
+    ) {
       this.webglRenderer.appService.processGraph(
         this.webglRenderer.paneId,
         snapshotFlattenLayers,
         snapshot,
+        true,
+        snapshotArchitectureMode,
+        snapshotHideShapeNodes,
       );
       this.webglRenderer.appService.setFlattenLayersInCurrentPane(
         snapshotFlattenLayers,
+      );
+      this.webglRenderer.appService.setArchitectureModeInCurrentPane(
+        snapshotArchitectureMode,
+      );
+      this.webglRenderer.appService.setHideShapeNodesInCurrentPane(
+        snapshotHideShapeNodes,
       );
     } else {
       this.webglRenderer.sendRelayoutGraphRequest(

@@ -1,0 +1,190 @@
+<div class="radiance-source-input">
+  <div class="header">
+    <div class="title">Radiance Model Sources</div>
+    <div class="description">
+      Register mounted paths, Hugging Face repos, and smaller uploads into the
+      shared ModelSource contract. Mounted paths and HF pulls remain the
+      preferred path for large checkpoints.
+    </div>
+  </div>
+
+  @if (lastError()) {
+    <div class="banner error">{{lastError()}}</div>
+  }
+
+  @if (runError()) {
+    <div class="banner error">{{runError()}}</div>
+  }
+
+  @if (statusMessage()) {
+    <div class="banner success">{{statusMessage()}}</div>
+  }
+
+  <div class="sections">
+    <section class="card">
+      <div class="card-title">Mounted Browser</div>
+      <div class="card-copy">
+        Browsing stays rooted inside /radiance/models and never exposes paths
+        outside the appliance model mount.
+      </div>
+      <label class="field">
+        <span>Optional display name</span>
+        <input [formControl]="mountedDisplayName" placeholder="Mounted demo model">
+      </label>
+      <div class="toolbar">
+        <button mat-stroked-button
+            (click)="browseMounted(mountedBrowser().parentSubpath || '')"
+            [disabled]="!mountedBrowser().currentSubpath || loadingMountedEntries() || submitting()">
+          Up
+        </button>
+        <button mat-flat-button
+            (click)="selectCurrentMountedPath()"
+            [disabled]="!mountedBrowser().currentSubpath || loadingMountedEntries() || submitting()">
+          Use current path
+        </button>
+        <div class="path">{{mountedBrowser().currentSubpath || '/'}}</div>
+      </div>
+      @if (loadingMountedEntries()) {
+        <div class="loading-row">
+          <mat-spinner color="primary" diameter="20"></mat-spinner>
+          Loading mounted entries...
+        </div>
+      } @else if (mountedBrowser().entries.length === 0) {
+        <div class="empty-state">No entries found in this mounted directory.</div>
+      } @else {
+        <div class="entry-list">
+          @for (entry of mountedBrowser().entries; track entry.subpath) {
+            <button class="entry-row"
+                type="button"
+                (click)="handleMountedEntryClick(entry)"
+                [disabled]="submitting()">
+              <span class="entry-icon">{{entry.entryType === 'directory' ? 'folder' : 'draft'}}</span>
+              <span class="entry-name">{{entry.name}}</span>
+              <span class="entry-action">{{entry.entryType === 'directory' ? 'Browse' : 'Register'}}</span>
+            </button>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="card">
+      <div class="card-title">Hugging Face</div>
+      <div class="card-copy">
+        Auth stays transient on submission. Repo, revision, and trust_remote_code
+        are normalized into the shared source contract.
+      </div>
+      <label class="field">
+        <span>Repo ID</span>
+        <input [formControl]="huggingFaceRepoId" placeholder="meta-llama/Llama-3.2-1B">
+      </label>
+      <label class="field">
+        <span>Revision</span>
+        <input [formControl]="huggingFaceRevision" placeholder="main">
+      </label>
+      <label class="field">
+        <span>Optional display name</span>
+        <input [formControl]="huggingFaceDisplayName" placeholder="Llama 3.2 1B">
+      </label>
+      <label class="field">
+        <span>Optional access token</span>
+        <input [formControl]="huggingFaceAccessToken" type="password" placeholder="hf_...">
+      </label>
+      <mat-checkbox [formControl]="trustRemoteCode">
+        Allow trust_remote_code for this source
+      </mat-checkbox>
+      <button mat-flat-button
+          (click)="submitHuggingFaceSource()"
+          [disabled]="!huggingFaceRepoId.value || submitting()">
+        Register Hugging Face source
+      </button>
+    </section>
+
+    <section class="card">
+      <div class="card-title">Uploads</div>
+      <div class="card-copy">
+        Smaller artifacts can be staged under /radiance/uploads. For large
+        checkpoints, mounted paths and HF pulls stay preferred.
+      </div>
+      <button mat-stroked-button (click)="uploadInput.click()" [disabled]="submitting()">
+        Select files to stage
+      </button>
+      <input #uploadInput class="upload-input" type="file" multiple (change)="handleUpload(uploadInput)">
+    </section>
+  </div>
+
+  <section class="card source-list-card">
+    <div class="card-title">Registered Sources</div>
+    @if (loadingSources()) {
+      <div class="loading-row">
+        <mat-spinner color="primary" diameter="20"></mat-spinner>
+        Loading registered sources...
+      </div>
+    } @else if (sources().length === 0) {
+      <div class="empty-state">No model sources have been registered yet.</div>
+    } @else {
+      <div class="source-list">
+        @for (source of sources(); track source.source_id) {
+          <div class="source-row" [class.selected]="selectedSourceId() === source.source_id">
+            <div class="source-meta">
+              <div class="source-name">{{source.display_name}}</div>
+              <div class="source-kind">{{sourceKindLabel(source)}}</div>
+            </div>
+            <div class="source-locator">{{formatLocator(source)}}</div>
+            <div class="source-actions">
+              <button mat-flat-button
+                  type="button"
+                  (click)="analyzeSource(source)"
+                  [disabled]="!canAnalyze(source)">
+                @if (pollingRunId()) {
+                  {{pollingRunId() ? 'Analyzing...' : 'Analyze'}}
+                } @else {
+                  Analyze
+                }
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </section>
+
+  <section class="card source-list-card">
+    <div class="card-title">Completed And Recent Runs</div>
+    @if (loadingRuns()) {
+      <div class="loading-row">
+        <mat-spinner color="primary" diameter="20"></mat-spinner>
+        Loading persisted runs...
+      </div>
+    } @else if (runs().length === 0) {
+      <div class="empty-state">No theoretical runs have completed yet.</div>
+    } @else {
+      <div class="source-list">
+        @for (run of runs(); track run.runId) {
+          <div class="source-row">
+            <div class="source-meta">
+              <div class="source-name">{{run.displayName}}</div>
+              <div class="source-kind">{{run.status}}</div>
+            </div>
+            <div class="source-locator">{{run.statusMessage || run.runId}}</div>
+            <div class="source-actions">
+              <button mat-stroked-button
+                  type="button"
+                  (click)="reopenRun(run.runId)"
+                  [disabled]="!run.graphReady || submittingRun() || pollingRunId() != null">
+                Open
+              </button>
+              <button mat-icon-button
+                  type="button"
+                  class="trash-action"
+                  (click)="deleteRun(run.runId)"
+                  [disabled]="!canDeleteRun(run.runId, run.status)"
+                  aria-label="Delete run">
+                <mat-icon>delete</mat-icon>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </section>
+</div>

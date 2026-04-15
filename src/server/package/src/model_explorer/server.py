@@ -20,23 +20,24 @@ import platform
 import queue
 import socket
 import sys
-import tempfile
 import threading
 import time
 import traceback
 import webbrowser
 from importlib import metadata
+from pathlib import Path
 from time import sleep
 from typing import Any, Union
 
 import portpicker
 import requests
-from flask import Flask, Response, make_response, request, send_from_directory
+from flask import Flask, Response, make_response, request, send_file, send_from_directory
 from IPython import display
 from packaging.version import parse
 from termcolor import colored, cprint
 from watchdog.observers import Observer
 
+from radiance.server import load_runtime_paths, register_radiance_routes
 from .config import ModelExplorerConfig
 from .consts import (
     DEFAULT_COLAB_HEIGHT,
@@ -95,7 +96,7 @@ def _get_latest_version_from_repo(package_json_url: str) -> str:
 def _get_release_from_github(version: str) -> dict:
   # Get release data through github API.
   api_url_base = 'https://api.github.com/repos'
-  repo_name = 'google-ai-edge/model-explorer'
+  repo_name = 'LLM360/model-explorer'
   req = requests.get(
       f'{api_url_base}/{repo_name}/releases/tags/model-explorer-v{version}'
   )
@@ -306,6 +307,8 @@ def start(
       all_extensions=extension_metadata_list,
   )
 
+  runtime_paths = load_runtime_paths()
+
   # The handler when a file change is detected.
   _file_change_event_handler = FileChangeHandler(callback=_refresh_app_callback)
 
@@ -325,10 +328,9 @@ def start(
   def upload_file():
     f = request.files['file']
     file_name = f.filename if f.filename is not None else 'no_name'
-    tmp_dir = tempfile.mkdtemp()
-    file_path = os.path.join(tmp_dir, file_name)
-    f.save(file_path)
-    return _make_json_response({'path': file_path})
+    upload_path = runtime_paths.stage_upload_destination(file_name)
+    f.save(upload_path)
+    return _make_json_response({'path': upload_path.as_posix()})
 
   @app.route('/api/v1/send_command')
   def send_command():
@@ -387,10 +389,10 @@ def start(
     path = request.args.get('path')
     if path is None:
       return _make_json_response({'error': 'no file path provided'})
-    path = os.path.expanduser(path)
 
     try:
-      with open(path, 'r') as file:
+      resolved_path = runtime_paths.resolve_read_path(path)
+      with Path(resolved_path).open('r') as file:
         content = file.read()
       return _make_json_response({'content': content})
     except Exception as err:
@@ -469,6 +471,14 @@ def start(
         content_type='text/event-stream',
         mimetype='text/event-stream',
     )
+
+  register_radiance_routes(
+      app,
+      runtime_paths,
+      make_json_response=_make_json_response,
+      request_proxy=request,
+      send_file_response=send_file,
+  )
 
   @app.route('/')
   def send_index_html():

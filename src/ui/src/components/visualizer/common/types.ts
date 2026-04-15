@@ -315,6 +315,8 @@ export interface SnapshotData {
   showOnNodeItemTypes?: Record<string, ShowOnNodeItemData>;
   showOnEdgeItem?: ShowOnEdgeItemData;
   flattenLayers?: boolean;
+  architectureMode?: boolean;
+  hideShapeNodes?: boolean;
 }
 
 /** Info to pass along when clicking "expand/collapse all layers" */
@@ -554,6 +556,10 @@ export interface Pane {
   snapshots?: Record<string, SnapshotData[]>;
   // Whether to flatten all layers (ignore namespaces in node).
   flattenLayers?: boolean;
+  // Whether to show the graph in architecture-compacted mode.
+  architectureMode?: boolean;
+  // Whether to hide shape nodes in the graph.
+  hideShapeNodes?: boolean;
   snapshotToRestore?: SnapshotData;
   subgraphBreadcrumbs?: SubgraphBreadcrumbItem[];
   searchResults?: SearchResults;
@@ -1005,6 +1011,9 @@ export declare interface ToolbarConfig {
 
   /** Whether to hide the "Flatten all layers" button. */
   hideFlattenAllLayers?: boolean;
+
+  /** Whether to hide the "Architecture mode" button. */
+  hideArchitectureMode?: boolean;
 
   /** Whether to hide the "Custom edge overlays" button. */
   hideCustomEdgeOverlays?: boolean;

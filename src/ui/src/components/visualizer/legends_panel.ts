@@ -87,6 +87,14 @@ export class LegendsPanel {
     return this.appService.config()?.legendConfig?.renameOpTo ?? 'Op';
   }
 
+  get dataOpLabel(): string {
+    return `Data ${this.opLabel.toLowerCase()}`;
+  }
+
+  get shapeOpLabel(): string {
+    return `Shape ${this.opLabel.toLowerCase()}`;
+  }
+
   get layerLabel(): string {
     return this.appService.config()?.legendConfig?.renameLayerTo ?? 'Layer';
   }

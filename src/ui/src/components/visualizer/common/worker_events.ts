@@ -60,6 +60,8 @@ export declare interface ProcessGraphRequest extends WorkerEventBase {
   paneId: string;
   groupNodeChildrenCountThreshold?: number;
   flattenLayers?: boolean;
+  architectureMode?: boolean;
+  hideShapeNodes?: boolean;
   keepLayersWithASingleChild?: boolean;
   initialLayout?: boolean;
   // Whether to replace the current graph.

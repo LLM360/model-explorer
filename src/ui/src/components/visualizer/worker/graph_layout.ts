@@ -22,7 +22,6 @@ import {
   EXPANDED_NODE_DATA_PROVIDER_SUMMARY_ROW_HEIGHT,
   EXPANDED_NODE_DATA_PROVIDER_SUMMARY_TOP_PADDING,
   EXPANDED_NODE_DATA_PROVIDER_SYUMMARY_FONT_SIZE,
-  LABEL_PADDING,
   LAYOUT_MARGIN_X,
   MAX_IO_ROWS_IN_ATTRS_TABLE,
   NODE_ATTRS_TABLE_FONT_SIZE_TO_HEIGHT_RATIO,
@@ -33,6 +32,7 @@ import {
   NODE_DATA_PROVIDER_SHOW_ON_NODE_TYPE_PREFIX,
 } from '../common/consts';
 import {
+  EdgeStyleData,
   GroupNode,
   ModelEdge,
   ModelGraph,
@@ -70,7 +70,6 @@ import {
   isGroupNode,
   isOpNode,
   splitLabel,
-  wrapLabel,
 } from '../common/utils';
 import {VisualizerConfig} from '../common/visualizer_config';
 
@@ -85,9 +84,13 @@ export const LAYOUT_MARGIN_BOTTOM = 16;
 /** Node width for test cases. */
 export const NODE_WIDTH_FOR_TEST = 50;
 
+const LABEL_PADDING = 24;
+
 const MIN_NODE_WIDTH = 80;
 
 const ATTRS_TABLE_MARGIN_X = 8;
+const PINNED_NODE_HORIZONTAL_GAP = 24;
+const PINNED_NODE_VERTICAL_PADDING = 10;
 
 /** A node in dagre. */
 export declare interface DagreNode {
@@ -148,6 +151,13 @@ export class GraphLayout {
         (nodeId) => this.modelGraph.nodesById[nodeId],
       );
     }
+    const pinToTopNodes = nodes.filter(
+      (node): node is OpNode => isOpNode(node) && node.config?.pinToGroupTop === true,
+    );
+    const pinToBottomNodes = nodes.filter(
+      (node): node is OpNode =>
+        isOpNode(node) && node.config?.pinToGroupBottom === true,
+    );
 
     // Init.
     this.configLayout(this.dagreGraph, rootNode);
@@ -164,6 +174,7 @@ export class GraphLayout {
       false,
       this.config,
     );
+    const rawLayoutGraphEdges = this.modelGraph.layoutGraphEdges[rootNode?.id || ''] || {};
 
     // Set nodes/edges to dagre.
     for (const id of Object.keys(layoutGraph.nodes)) {
@@ -223,7 +234,7 @@ export class GraphLayout {
     let maxEdgeX = Number.NEGATIVE_INFINITY;
     let maxEdgeY = Number.NEGATIVE_INFINITY;
     const dagreEdgeRefs = this.dagreGraph.edges();
-    const edges: ModelEdge[] = [];
+    const baseEdges: ModelEdge[] = [];
     const layoutDirection = getLayoutDirection(
       this.modelGraph,
       rootNodeId ?? '',
@@ -259,12 +270,23 @@ export class GraphLayout {
         continue;
       }
       const edgeId = `${fromNode.id}|${toNode.id}`;
-      edges.push({
+      const edgeStyle =
+        this.modelGraph.layoutGraphEdges[rootNodeId || '']?.[fromNode.id]?.[
+          toNode.id
+        ] || {
+          colorRole: 'data',
+          isResidual: false,
+          isShape: false,
+        };
+      baseEdges.push({
         id: edgeId,
         fromNodeId: fromNode.id,
         toNodeId: toNode.id,
         points,
         curvePoints,
+        edgeColorRole: edgeStyle.colorRole,
+        edgeIsResidual: edgeStyle.isResidual,
+        edgeIsShape: edgeStyle.isShape,
       });
       for (const point of points) {
         minEdgeX = Math.min(minEdgeX, point.x);
@@ -273,8 +295,6 @@ export class GraphLayout {
         maxEdgeY = Math.max(maxEdgeY, point.y);
       }
     }
-    this.modelGraph.edgesByGroupNodeIds[rootNodeId || ''] = edges;
-
     // Offset nodes to take into account of edges going out of the bound of all
     // the nodes.
     if (minEdgeX < minX) {
@@ -286,9 +306,22 @@ export class GraphLayout {
     minX = Math.min(minEdgeX, minX);
     maxX = Math.max(maxEdgeX, maxX);
 
+    if (minX === Number.MAX_VALUE) {
+      minX = 0;
+      minY = 0;
+      maxX = 0;
+      maxY = 0;
+    }
+
     // Make sure the subgraph width is at least the width of the root node and
-    // the width of the pin-to-group-top node if it exists.
+    // the width of the pinned rows if they exist.
     let subgraphFullWidth = maxX - minX + LAYOUT_MARGIN_X * 2;
+    const pinnedRowWidth =
+      Math.max(
+        this.getPinnedRowWidth(pinToTopNodes),
+        this.getPinnedRowWidth(pinToBottomNodes),
+      ) + LAYOUT_MARGIN_X * 2;
+    subgraphFullWidth = Math.max(subgraphFullWidth, pinnedRowWidth);
     if (rootNode) {
       let parentNodeWidth = getNodeWidth(
         rootNode,
@@ -299,32 +332,14 @@ export class GraphLayout {
         this.testMode,
         this.config,
       );
-      if (rootNode.pinToTopOpNode) {
+      if (pinToTopNodes.length > 0) {
         const pinToTopNodeWidth =
-          getNodeWidth(
-            rootNode.pinToTopOpNode,
-            this.modelGraph,
-            this.showOnNodeItemTypes,
-            this.nodeDataProviderRuns,
-            this.selectedNodeDataProviderRunId,
-            this.testMode,
-            this.config,
-          ) +
-          LAYOUT_MARGIN_X * 2;
+          this.getPinnedRowWidth(pinToTopNodes) + LAYOUT_MARGIN_X * 2;
         parentNodeWidth = Math.max(parentNodeWidth, pinToTopNodeWidth);
       }
-      if (rootNode.pinToBottomOpNode) {
+      if (pinToBottomNodes.length > 0) {
         const pinToBottomNodeWidth =
-          getNodeWidth(
-            rootNode.pinToBottomOpNode,
-            this.modelGraph,
-            this.showOnNodeItemTypes,
-            this.nodeDataProviderRuns,
-            this.selectedNodeDataProviderRunId,
-            this.testMode,
-            this.config,
-          ) +
-          LAYOUT_MARGIN_X * 2;
+          this.getPinnedRowWidth(pinToBottomNodes) + LAYOUT_MARGIN_X * 2;
         parentNodeWidth = Math.max(parentNodeWidth, pinToBottomNodeWidth);
       }
       if (subgraphFullWidth < parentNodeWidth) {
@@ -337,18 +352,6 @@ export class GraphLayout {
         }
         subgraphFullWidth = parentNodeWidth;
       }
-    }
-
-    // Special handling for the group node with only one pin-to-group-top
-    // child node.
-    if (
-      nodes.length === 1 &&
-      isOpNode(nodes[0]) &&
-      (nodes[0].config?.pinToGroupTop || nodes[0].config?.pinToGroupBottom)
-    ) {
-      minX = 0;
-      minY = 0;
-      maxY = -15;
     }
 
     // Offset downwards if the root node has attrs table shown.
@@ -367,12 +370,379 @@ export class GraphLayout {
       }
     }
 
+    if (pinToTopNodes.length > 0 || pinToBottomNodes.length > 0) {
+      maxY = this.positionPinnedNodes({
+        rootGroupNodeId: rootNode?.id || '',
+        nodes,
+        minX,
+        maxX,
+        maxY,
+        pinToTopNodes,
+        pinToBottomNodes,
+      });
+    }
+
+    this.modelGraph.edgesByGroupNodeIds[rootNodeId || ''] =
+      this.buildRenderedEdges({
+        nodes,
+        baseEdges,
+        layoutDirection,
+        pinToTopRowVerticalSpace: this.getPinnedRowVerticalSpace(pinToTopNodes),
+        rawLayoutGraphEdges,
+      });
+
     return {
       x: minX,
       y: minY,
       width: subgraphFullWidth - LAYOUT_MARGIN_X * 2,
       height: maxY - minY,
     };
+  }
+
+  private positionPinnedNodes({
+    rootGroupNodeId,
+    nodes,
+    minX,
+    maxX,
+    maxY,
+    pinToTopNodes,
+    pinToBottomNodes,
+  }: {
+    rootGroupNodeId: string;
+    nodes: ModelNode[];
+    minX: number;
+    maxX: number;
+    maxY: number;
+    pinToTopNodes: OpNode[];
+    pinToBottomNodes: OpNode[];
+  }): number {
+    const topPinnedNodeIds = new Set(pinToTopNodes.map((node) => node.id));
+    const bottomPinnedNodeIds = new Set(pinToBottomNodes.map((node) => node.id));
+    const pinToTopRowVerticalSpace = this.getPinnedRowVerticalSpace(pinToTopNodes);
+    const pinToBottomRowVerticalSpace =
+      this.getPinnedRowVerticalSpace(pinToBottomNodes);
+
+    if (pinToTopRowVerticalSpace > 0) {
+      for (const node of nodes) {
+        if (
+          !topPinnedNodeIds.has(node.id) &&
+          !bottomPinnedNodeIds.has(node.id) &&
+          node.y != null
+        ) {
+          node.y += pinToTopRowVerticalSpace;
+        }
+      }
+      maxY += pinToTopRowVerticalSpace;
+    }
+
+    this.positionPinnedRow({
+      rootGroupNodeId,
+      rowNodes: pinToTopNodes,
+      minX,
+      maxX,
+      nodes,
+      rowTopY: PINNED_NODE_VERTICAL_PADDING,
+      alignBottom: false,
+    });
+
+    if (pinToBottomNodes.length > 0) {
+      this.positionPinnedRow({
+        rootGroupNodeId,
+        rowNodes: pinToBottomNodes,
+        minX,
+        maxX,
+        nodes,
+        rowTopY: maxY + PINNED_NODE_VERTICAL_PADDING,
+        alignBottom: true,
+      });
+      maxY += pinToBottomRowVerticalSpace + PINNED_NODE_VERTICAL_PADDING;
+    }
+
+    return maxY;
+  }
+
+  private positionPinnedRow({
+    rootGroupNodeId,
+    rowNodes,
+    minX,
+    maxX,
+    nodes,
+    rowTopY,
+    alignBottom,
+  }: {
+    rootGroupNodeId: string;
+    rowNodes: OpNode[];
+    minX: number;
+    maxX: number;
+    nodes: ModelNode[];
+    rowTopY: number;
+    alignBottom: boolean;
+  }) {
+    if (rowNodes.length === 0) {
+      return;
+    }
+
+    const pinnedRowVerticalSpace = this.getPinnedRowVerticalSpace(rowNodes);
+    const visibleNodesById = new Map(nodes.map((node) => [node.id, node]));
+    const fallbackLeftX =
+      (maxX > minX ? minX + (maxX - minX - this.getPinnedRowWidth(rowNodes)) / 2 : 0);
+    const placements = rowNodes.map((node, index) => ({
+      node,
+      index,
+      idealCenterX:
+        this.getPinnedNodeIdealCenterX(
+          node,
+          rootGroupNodeId,
+          visibleNodesById,
+          alignBottom,
+        ) ??
+        this.getPinnedRowFallbackCenterX(rowNodes, index, fallbackLeftX),
+    }));
+
+    placements.sort((lhs, rhs) => {
+      if (lhs.idealCenterX !== rhs.idealCenterX) {
+        return lhs.idealCenterX - rhs.idealCenterX;
+      }
+      return lhs.index - rhs.index;
+    });
+
+    const resolvedCenterXs: number[] = [];
+    let previousRightX = Number.NEGATIVE_INFINITY;
+    for (const placement of placements) {
+      const nodeHalfWidth = (placement.node.width || 0) / 2;
+      let centerX = placement.idealCenterX;
+      if (previousRightX !== Number.NEGATIVE_INFINITY) {
+        centerX = Math.max(
+          centerX,
+          previousRightX + PINNED_NODE_HORIZONTAL_GAP + nodeHalfWidth,
+        );
+      }
+      resolvedCenterXs.push(centerX);
+      previousRightX = centerX + nodeHalfWidth;
+    }
+
+    if (resolvedCenterXs.length > 0) {
+      const idealCenterAverage =
+        placements.reduce((sum, placement) => sum + placement.idealCenterX, 0) /
+        placements.length;
+      const resolvedCenterAverage =
+        resolvedCenterXs.reduce((sum, centerX) => sum + centerX, 0) /
+        resolvedCenterXs.length;
+      let shiftX = idealCenterAverage - resolvedCenterAverage;
+      const firstLeftX =
+        resolvedCenterXs[0] - (placements[0].node.width || 0) / 2 + shiftX;
+      const lastRightX =
+        resolvedCenterXs[resolvedCenterXs.length - 1] +
+        (placements[placements.length - 1].node.width || 0) / 2 +
+        shiftX;
+      if (firstLeftX < minX) {
+        shiftX += minX - firstLeftX;
+      }
+      if (lastRightX > maxX) {
+        shiftX -= lastRightX - maxX;
+      }
+      for (let index = 0; index < resolvedCenterXs.length; index++) {
+        resolvedCenterXs[index] += shiftX;
+      }
+    }
+
+    for (let index = 0; index < placements.length; index++) {
+      const {node} = placements[index];
+      const nodeWidth = node.width || 0;
+      const nodeHeight = node.height || 0;
+      node.x = resolvedCenterXs[index] - nodeWidth / 2;
+      if (alignBottom) {
+        node.y = rowTopY + pinnedRowVerticalSpace - nodeHeight;
+      } else {
+        node.y =
+          rowTopY +
+          pinnedRowVerticalSpace -
+          this.getPinnedNodeVerticalSpace(node);
+      }
+    }
+  }
+
+  private getPinnedNodeIdealCenterX(
+    node: OpNode,
+    rootGroupNodeId: string,
+    visibleNodesById: Map<string, ModelNode>,
+    alignBottom: boolean,
+  ): number | undefined {
+    const rawLayoutGraphEdges =
+      this.modelGraph.layoutGraphEdges[rootGroupNodeId] || {};
+    const connectedNodeIds = alignBottom
+      ? Object.keys(rawLayoutGraphEdges).filter(
+          (sourceNodeId) => rawLayoutGraphEdges[sourceNodeId]?.[node.id] != null,
+        )
+      : Object.keys(rawLayoutGraphEdges[node.id] || {});
+    const connectedCenterXs = connectedNodeIds
+      .map((nodeId) => visibleNodesById.get(nodeId))
+      .filter((connectedNode): connectedNode is ModelNode => connectedNode != null)
+      .map((connectedNode) => this.getNodeCenterX(connectedNode));
+    if (connectedCenterXs.length === 0) {
+      return undefined;
+    }
+    return (
+      connectedCenterXs.reduce((sum, centerX) => sum + centerX, 0) /
+      connectedCenterXs.length
+    );
+  }
+
+  private getPinnedRowFallbackCenterX(
+    rowNodes: OpNode[],
+    nodeIndex: number,
+    rowLeftX: number,
+  ): number {
+    let currentLeftX = rowLeftX;
+    for (let index = 0; index < nodeIndex; index++) {
+      currentLeftX += (rowNodes[index].width || 0) + PINNED_NODE_HORIZONTAL_GAP;
+    }
+    return currentLeftX + (rowNodes[nodeIndex].width || 0) / 2;
+  }
+
+  private getNodeCenterX(node: ModelNode): number {
+    return (node.x || 0) + (node.localOffsetX || 0) + (node.width || 0) / 2;
+  }
+
+  private buildRenderedEdges({
+    nodes,
+    baseEdges,
+    layoutDirection,
+    pinToTopRowVerticalSpace,
+    rawLayoutGraphEdges,
+  }: {
+    nodes: ModelNode[];
+    baseEdges: ModelEdge[];
+    layoutDirection: LayoutDirection;
+    pinToTopRowVerticalSpace: number;
+    rawLayoutGraphEdges: Record<string, Record<string, EdgeStyleData>>;
+  }): ModelEdge[] {
+    const edges: ModelEdge[] = baseEdges.map((edge) => {
+      const adjustedPoints = edge.points.map((point) => ({
+        x: point.x,
+        y: point.y + pinToTopRowVerticalSpace,
+      }));
+      return {
+        ...edge,
+        points: adjustedPoints,
+        curvePoints: this.generateEdgeCurvePoints(
+          adjustedPoints,
+          layoutDirection,
+        ),
+      };
+    });
+    const visibleNodesById = new Map(nodes.map((node) => [node.id, node]));
+    for (const [fromNodeId, toNodeIds] of Object.entries(rawLayoutGraphEdges)) {
+      for (const [toNodeId, edgeStyle] of Object.entries(toNodeIds)) {
+        const fromNode = visibleNodesById.get(fromNodeId);
+        const toNode = visibleNodesById.get(toNodeId);
+        if (!fromNode || !toNode || (!isOpNode(fromNode) && !isOpNode(toNode))) {
+          continue;
+        }
+        const isPinnedEdge =
+          (isOpNode(fromNode) &&
+            (fromNode.config?.pinToGroupTop || fromNode.config?.pinToGroupBottom)) ||
+          (isOpNode(toNode) &&
+            (toNode.config?.pinToGroupTop || toNode.config?.pinToGroupBottom));
+        if (!isPinnedEdge) {
+          continue;
+        }
+        const points = this.getPinnedEdgePoints(fromNode, toNode, layoutDirection);
+        edges.push({
+          id: `${fromNodeId}|${toNodeId}`,
+          fromNodeId,
+          toNodeId,
+          points,
+          curvePoints: points,
+          edgeColorRole: edgeStyle.colorRole,
+          edgeIsResidual: edgeStyle.isResidual,
+          edgeIsShape: edgeStyle.isShape,
+        });
+      }
+    }
+    return edges;
+  }
+
+  private getPinnedEdgePoints(
+    fromNode: ModelNode,
+    toNode: ModelNode,
+    layoutDirection: LayoutDirection,
+  ): Point[] {
+    const fromCenterX = this.getNodeCenterX(fromNode);
+    const toCenterX = this.getNodeCenterX(toNode);
+    const fromTopY = fromNode.y || 0;
+    const fromBottomY = (fromNode.y || 0) + (fromNode.height || 0);
+    const toTopY = toNode.y || 0;
+    const toBottomY = (toNode.y || 0) + (toNode.height || 0);
+
+    if (layoutDirection !== LayoutDirection.TOP_BOTTOM) {
+      const fromRightX = (fromNode.x || 0) + (fromNode.width || 0);
+      const toLeftX = toNode.x || 0;
+      const midX = fromRightX + Math.max(24, (toLeftX - fromRightX) / 2);
+      const y1 = fromTopY + (fromNode.height || 0) / 2;
+      const y2 = toTopY + (toNode.height || 0) / 2;
+      return [
+        {x: fromRightX, y: y1},
+        {x: midX, y: y1},
+        {x: midX, y: y2},
+        {x: toLeftX, y: y2},
+      ];
+    }
+
+    const startY = toTopY >= fromBottomY ? fromBottomY : fromTopY;
+    const endY = toTopY >= fromBottomY ? toTopY : toBottomY;
+    const midY = startY + Math.max(24, Math.abs(endY - startY) / 2);
+    return [
+      {x: fromCenterX, y: startY},
+      {x: fromCenterX, y: midY},
+      {x: toCenterX, y: midY},
+      {x: toCenterX, y: endY},
+    ];
+  }
+
+  private generateEdgeCurvePoints(
+    points: Point[],
+    layoutDirection: LayoutDirection,
+  ): Point[] {
+    // tslint:disable-next-line:no-any Allow arbitrary types.
+    const d3 = (globalThis as any)['d3'];
+    // tslint:disable-next-line:no-any Allow arbitrary types.
+    const three = (globalThis as any)['THREE'];
+    if (typeof three === 'undefined') {
+      return [];
+    }
+    return generateCurvePoints(
+      points,
+      d3['line'],
+      d3[
+        layoutDirection === LayoutDirection.TOP_BOTTOM
+          ? 'curveMonotoneY'
+          : 'curveMonotoneX'
+      ],
+      three,
+      layoutDirection === LayoutDirection.TOP_BOTTOM,
+    );
+  }
+
+  private getPinnedRowWidth(nodes: OpNode[]): number {
+    if (nodes.length === 0) {
+      return 0;
+    }
+    return (
+      nodes.reduce((totalWidth, node) => totalWidth + (node.width || 0), 0) +
+      PINNED_NODE_HORIZONTAL_GAP * (nodes.length - 1)
+    );
+  }
+
+  private getPinnedRowVerticalSpace(nodes: OpNode[]): number {
+    return Math.max(
+      0,
+      ...nodes.map((node) => this.getPinnedNodeVerticalSpace(node)),
+    );
+  }
+
+  private getPinnedNodeVerticalSpace(node: OpNode): number {
+    return (node.height || 0) + (getNodeLabelHeight(node, this.config) * 2 - 2);
   }
 
   private configLayout(dagreGraph: DagreGraphInstance, rootNode?: GroupNode) {
@@ -417,8 +787,8 @@ export function getNodeWidth(
   testMode = false,
   config?: VisualizerConfig,
 ) {
-  // Always return 32 in test mode, unless maxNodeLabelWidth is set.
-  if (testMode && !config?.maxNodeLabelWidth) {
+  // Always return 32 in test mode.
+  if (testMode) {
     return NODE_WIDTH_FOR_TEST;
   }
 
@@ -428,17 +798,7 @@ export function getNodeWidth(
     fontSize * NODE_ATTRS_TABLE_VALUE_MAX_CHAR_COUNT;
 
   const label = node.label;
-  let lines: string[] = [];
-  if (config?.maxNodeLabelWidth) {
-    lines = wrapLabel(
-      label,
-      config.maxNodeLabelWidth,
-      getNodeLabelHeight(node, config),
-      isGroupNode(node),
-    );
-  } else {
-    lines = splitLabel(label);
-  }
+  const lines = splitLabel(label);
   let labelWidth = 0;
   for (const line of lines) {
     labelWidth = Math.max(
@@ -611,7 +971,7 @@ export function getNodeHeight(
   forceRecalculate = false,
   config?: VisualizerConfig,
 ) {
-  if (testMode && !config?.maxNodeLabelWidth) {
+  if (testMode) {
     return NODE_HEIGHT_FOR_TEST;
   }
 

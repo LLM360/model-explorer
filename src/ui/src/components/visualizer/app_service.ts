@@ -266,9 +266,20 @@ export class AppService {
     flattenLayers = false,
     snapshot?: SnapshotData,
     initialLayout = true,
+    architectureMode?: boolean,
+    hideShapeNodes?: boolean,
   ) {
     if (paneIndex === 1 && this.panes().length === 1) {
-      this.openGraphInSplitPane(graph);
+      const activeHideShapeNodes =
+        hideShapeNodes ?? this.getHideShapeNodes(this.selectedPaneId());
+      this.openGraphInSplitPane(
+        graph,
+        flattenLayers,
+        initialLayout,
+        false,
+        architectureMode ?? false,
+        activeHideShapeNodes,
+      );
       return;
     }
 
@@ -300,7 +311,14 @@ export class AppService {
     }
 
     // Process the graph.
-    this.processGraph(paneId, flattenLayers, snapshot, initialLayout);
+    this.processGraph(
+      paneId,
+      flattenLayers,
+      snapshot,
+      initialLayout,
+      architectureMode ?? pane.architectureMode === true,
+      hideShapeNodes ?? pane.hideShapeNodes === true,
+    );
   }
 
   selectGraphInCurrentPane(
@@ -308,6 +326,8 @@ export class AppService {
     flattenLayers = false,
     snapshot?: SnapshotData,
     initialLayout = true,
+    architectureMode?: boolean,
+    hideShapeNodes?: boolean,
   ) {
     this.selectGraphInPane(
       graph,
@@ -315,6 +335,8 @@ export class AppService {
       flattenLayers,
       snapshot,
       initialLayout,
+      architectureMode,
+      hideShapeNodes,
     );
   }
 
@@ -323,6 +345,8 @@ export class AppService {
     flattenLayers = false,
     initialLayout = true,
     openToLeft = false,
+    architectureMode = false,
+    hideShapeNodes = false,
   ) {
     // Keep the current pane and remove the other pane when there are two panes.
     if (this.panes().length === 2) {
@@ -345,6 +369,8 @@ export class AppService {
         id: paneId,
         widthFraction: 0.5,
         flattenLayers,
+        architectureMode,
+        hideShapeNodes,
         showOnNodeItemTypes: {[paneId]: this.getSavedShowOnNodeItemTypes()},
       };
       const savedShowOnEdgeItem = this.getSavedShowOnEdgeItem();
@@ -378,6 +404,8 @@ export class AppService {
       paneIndex,
     );
     this.uiStateService.setFlattenLayers(flattenLayers, paneIndex);
+    this.uiStateService.setArchitectureMode(architectureMode, paneIndex);
+    this.uiStateService.setHideShapeNodes(hideShapeNodes, paneIndex);
 
     // Kick off graph processing.
     const processGraphReq: ProcessGraphRequest = {
@@ -390,6 +418,8 @@ export class AppService {
       groupNodeChildrenCountThreshold:
         this.getGroupNodeChildrenCountThreshold(),
       flattenLayers,
+      architectureMode,
+      hideShapeNodes,
       keepLayersWithASingleChild: this.config()?.keepLayersWithASingleChild,
       initialLayout,
     };
@@ -406,6 +436,8 @@ export class AppService {
     flattenLayers = false,
     snapshotToRestore?: SnapshotData,
     initialLayout = true,
+    architectureMode?: boolean,
+    hideShapeNodes?: boolean,
   ) {
     // Store snapshotToResotre into pane if set.
     if (snapshotToRestore != null) {
@@ -415,6 +447,10 @@ export class AppService {
       }
     }
 
+    const activeArchitectureMode =
+      architectureMode ?? this.getArchitectureMode(paneId);
+    const activeHideShapeNodes =
+      hideShapeNodes ?? this.getHideShapeNodes(paneId);
     // Process the graph.
     //
     // TODO: properly cache the processed graph.
@@ -429,6 +465,8 @@ export class AppService {
       groupNodeChildrenCountThreshold:
         this.getGroupNodeChildrenCountThreshold(),
       flattenLayers,
+      architectureMode: activeArchitectureMode,
+      hideShapeNodes: activeHideShapeNodes,
       keepLayersWithASingleChild: this.config()?.keepLayersWithASingleChild,
       initialLayout,
     };
@@ -442,12 +480,18 @@ export class AppService {
     }
     this.panes.update((panes) => {
       pane.flattenLayers = flatten;
+      if (flatten) {
+        pane.architectureMode = false;
+      }
       pane.searchResults = undefined;
       return [...panes];
     });
 
     const paneIndex = this.getPaneIndexById(pane.id);
     this.uiStateService.setFlattenLayers(flatten, paneIndex);
+    if (flatten) {
+      this.uiStateService.setArchitectureMode(false, paneIndex);
+    }
     this.uiStateService.setDeepestExpandedGroupNodeIds([], paneIndex);
   }
 
@@ -459,17 +503,109 @@ export class AppService {
     const curFlatten = pane.flattenLayers === true;
     this.panes.update((panes) => {
       pane.flattenLayers = !curFlatten;
+      if (!curFlatten) {
+        pane.architectureMode = false;
+      }
       pane.searchResults = undefined;
       return [...panes];
     });
 
     const paneIndex = this.getPaneIndexById(paneId);
     this.uiStateService.setFlattenLayers(!curFlatten, paneIndex);
+    if (!curFlatten) {
+      this.uiStateService.setArchitectureMode(false, paneIndex);
+    }
     this.uiStateService.setDeepestExpandedGroupNodeIds([], paneIndex);
   }
 
   getFlattenLayers(paneId: string): boolean {
     return this.getPaneById(paneId)?.flattenLayers === true;
+  }
+
+  setHideShapeNodesInCurrentPane(enabled: boolean) {
+    const pane = this.getSelectedPane();
+    if (!pane) {
+      return;
+    }
+    this.panes.update((panes) => {
+      pane.hideShapeNodes = enabled;
+      pane.searchResults = undefined;
+      return [...panes];
+    });
+
+    const paneIndex = this.getPaneIndexById(pane.id);
+    this.uiStateService.setHideShapeNodes(enabled, paneIndex);
+    this.uiStateService.setDeepestExpandedGroupNodeIds([], paneIndex);
+  }
+
+  toggleHideShapeNodes(paneId: string) {
+    const pane = this.getPaneById(paneId);
+    if (!pane) {
+      return;
+    }
+    const curHideShapeNodes = pane.hideShapeNodes === true;
+    this.panes.update((panes) => {
+      pane.hideShapeNodes = !curHideShapeNodes;
+      pane.searchResults = undefined;
+      return [...panes];
+    });
+
+    const paneIndex = this.getPaneIndexById(paneId);
+    this.uiStateService.setHideShapeNodes(!curHideShapeNodes, paneIndex);
+    this.uiStateService.setDeepestExpandedGroupNodeIds([], paneIndex);
+  }
+
+  getHideShapeNodes(paneId: string): boolean {
+    return this.getPaneById(paneId)?.hideShapeNodes === true;
+  }
+
+  setArchitectureModeInCurrentPane(enabled: boolean) {
+    const pane = this.getSelectedPane();
+    if (!pane) {
+      return;
+    }
+    this.panes.update((panes) => {
+      pane.architectureMode = enabled;
+      if (enabled) {
+        pane.flattenLayers = false;
+      }
+      pane.searchResults = undefined;
+      return [...panes];
+    });
+
+    const paneIndex = this.getPaneIndexById(pane.id);
+    this.uiStateService.setArchitectureMode(enabled, paneIndex);
+    if (enabled) {
+      this.uiStateService.setFlattenLayers(false, paneIndex);
+    }
+    this.uiStateService.setDeepestExpandedGroupNodeIds([], paneIndex);
+  }
+
+  toggleArchitectureMode(paneId: string) {
+    const pane = this.getPaneById(paneId);
+    if (!pane) {
+      return;
+    }
+    const curArchitectureMode = pane.architectureMode === true;
+    this.panes.update((panes) => {
+      pane.architectureMode = !curArchitectureMode;
+      if (!curArchitectureMode) {
+        pane.flattenLayers = false;
+      }
+      pane.searchResults = undefined;
+      return [...panes];
+    });
+
+    const paneIndex = this.getPaneIndexById(paneId);
+    this.uiStateService.setArchitectureMode(!curArchitectureMode, paneIndex);
+    if (!curArchitectureMode) {
+      this.uiStateService.setFlattenLayers(false, paneIndex);
+    }
+    this.uiStateService.setDeepestExpandedGroupNodeIds([], paneIndex);
+  }
+
+  getArchitectureMode(paneId: string): boolean {
+    return this.getPaneById(paneId)?.architectureMode === true;
   }
 
   selectPane(paneId: string) {

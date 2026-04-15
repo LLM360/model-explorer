@@ -81,11 +81,18 @@ export class GraphSelectorPanel {
     this.onClose.next({});
     this.resetFilter();
 
-    this.appService.selectGraphInCurrentPane(graphItem.graph);
+    this.appService.selectGraphInCurrentPane(
+      graphItem.graph,
+      false,
+      undefined,
+      true,
+      false,
+    );
     this.appService.curInitialUiState.set(undefined);
     this.appService.selectNode(this.appService.selectedPaneId(), undefined);
     this.appService.curToLocateNodeInfo.set(undefined);
     this.appService.setFlattenLayersInCurrentPane(false);
+    this.appService.setArchitectureModeInCurrentPane(false);
   }
 
   handleFilterTextChanged(value: string) {

@@ -124,7 +124,6 @@ interface OutputItem {
   outputId: string;
   metadataList: OutputItemMetadata[];
   showSourceOpNode?: boolean;
-  connectedNodes?: OpNode[];
 }
 
 interface OutputItemMetadata extends KeyValue {
@@ -609,9 +608,6 @@ export class InfoPanel {
   }
 
   getOutputName(item: OutputItem): string {
-    if (item.connectedNodes != null && item.connectedNodes.length > 1) {
-      return 'output';
-    }
     return item.tensorTag === '' ? 'output' : item.tensorTag;
   }
 
@@ -620,9 +616,6 @@ export class InfoPanel {
   }
 
   getHasConnectedToNodes(item: OutputItem): boolean {
-    if (item.connectedNodes != null && item.connectedNodes.length > 0) {
-      return true;
-    }
     const connectedNodesMetadataItem = item.metadataList.find(
       (metadataItem) => metadataItem.key === this.outputMetadataConnectedTo,
     );
@@ -985,7 +978,6 @@ export class InfoPanel {
         outputId,
         sourceOpNode: selectedOpNode,
         metadataList,
-        connectedNodes,
       });
       index++;
     }
@@ -1080,7 +1072,6 @@ export class InfoPanel {
           sourceOpNode: opNode,
           metadataList,
           showSourceOpNode: true,
-          connectedNodes,
         });
         index++;
       }
@@ -1168,6 +1159,12 @@ export class InfoPanel {
     }
     metadataList.sort((a, b) => a.key.localeCompare(b.key));
 
+    metadataList.push({
+      key: this.outputMetadataConnectedTo,
+      value: '',
+      connectedNodes,
+    });
+
     // Filter out hidden output metadata keys.
     const config = this.appService.config();
     const outputMetadataKeysToHide = config?.outputMetadataKeysToHide ?? [];
@@ -1177,15 +1174,6 @@ export class InfoPanel {
         outputMetadataKeysToHide.some((regex) => item.key.match(regex))
       );
     });
-
-    // Connects to node ids.
-    if (connectedNodes.length > 1) {
-      metadataList.push({
-        key: this.outputMetadataConnectedTo,
-        value: '',
-        connectedNodes,
-      });
-    }
 
     return {metadataList, tensorTag};
   }

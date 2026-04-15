@@ -78,6 +78,28 @@ export class UiStateService {
     });
   }
 
+  setArchitectureMode(enabled: boolean, paneIndex: number) {
+    this.curUiState.update((uiState) => {
+      const paneState = uiState.paneStates[paneIndex];
+      if (!paneState) {
+        return uiState;
+      }
+      paneState.architectureMode = enabled;
+      return {...uiState};
+    });
+  }
+
+  setHideShapeNodes(enabled: boolean, paneIndex: number) {
+    this.curUiState.update((uiState) => {
+      const paneState = uiState.paneStates[paneIndex];
+      if (!paneState) {
+        return uiState;
+      }
+      paneState.hideShapeNodes = enabled;
+      return {...uiState};
+    });
+  }
+
   addPane() {
     this.curUiState.update((uiState) => {
       if (uiState.paneStates.length > 1) {
@@ -144,6 +166,7 @@ export class UiStateService {
       selectedCollectionLabel: '',
       widthFraction: 1,
       selected: false,
+      hideShapeNodes: false,
     };
   }
 }

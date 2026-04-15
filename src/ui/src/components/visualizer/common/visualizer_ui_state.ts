@@ -48,4 +48,10 @@ export declare interface PaneState {
 
   /** Whether to flatten all layers in the graph. */
   flattenLayers?: boolean;
+
+  /** Whether to compact repeated numbered blocks into architecture mode. */
+  architectureMode?: boolean;
+
+  /** Whether to hide shape nodes in the rendered graph. */
+  hideShapeNodes?: boolean;
 }
