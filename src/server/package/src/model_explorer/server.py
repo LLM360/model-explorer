@@ -95,7 +95,7 @@ def _get_latest_version_from_repo(package_json_url: str) -> str:
 def _get_release_from_github(version: str) -> dict:
   # Get release data through github API.
   api_url_base = 'https://api.github.com/repos'
-  repo_name = 'google-ai-edge/model-explorer'
+  repo_name = 'LLM360/model-explorer'
   req = requests.get(
       f'{api_url_base}/{repo_name}/releases/tags/model-explorer-v{version}'
   )

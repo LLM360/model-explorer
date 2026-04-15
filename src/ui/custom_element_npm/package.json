@@ -8,7 +8,7 @@
   "types": "src/custom_element/index.d.ts",
   "author": "Google Inc.",
   "license": "Apache-2.0",
-  "repository": "google-ai-edge/model-explorer",
+  "repository": "LLM360/model-explorer",
   "keywords": [
     "google",
     "model",

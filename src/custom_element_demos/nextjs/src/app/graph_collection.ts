@@ -21,13 +21,13 @@ import {GraphCollection} from 'ai-edge-model-explorer-visualizer';
 // Prepare the graph collections.
 //
 // The resulting graph looks like:
-// https://github.com/google-ai-edge/model-explorer/wiki/screenshots/adapter_dev_example_graph.png
+// https://github.com/LLM360/model-explorer/wiki/screenshots/adapter_dev_example_graph.png
 //
 // We are using the same example as in:
-// https://github.com/google-ai-edge/model-explorer/wiki/6.-Develop-Adapter-Extension
+// https://github.com/LLM360/model-explorer/wiki/6.-Develop-Adapter-Extension
 //
 // See more details in:
-// https://github.com/google-ai-edge/model-explorer/blob/main/src/ui/src/components/visualizer/common/input_graph.ts
+// https://github.com/LLM360/model-explorer/blob/main/src/ui/src/components/visualizer/common/input_graph.ts
 export const graphCollections: GraphCollection[] = [
   {
     label: 'my collection',

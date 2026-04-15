@@ -39,7 +39,7 @@ setup(
     description=DOCLINES[0],
     long_description='\n'.join(DOCLINES[2:]) if len(DOCLINES) > 2 else '',
     long_description_content_type='text/markdown',
-    url='https://github.com/google-ai-edge/model-explorer',
+    url='https://github.com/LLM360/model-explorer',
     author='Google AI Edge',
     author_email='odml-devtools-team@google.com',
     license='Apache 2.0',
