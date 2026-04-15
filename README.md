@@ -23,16 +23,16 @@ $ model-explorer
 
 Or give it a try on [Hugging Face](https://huggingface.co/spaces/google/model-explorer) (only support visualizing uploaded models)
 
-Please check out our [Wiki](https://github.com/google-ai-edge/model-explorer/wiki) for
+Please check out our [Wiki](https://github.com/LLM360/model-explorer/wiki) for
 more details:
 
-- [Installation](https://github.com/google-ai-edge/model-explorer/wiki/1.-Installation)
-- [User Guide](https://github.com/google-ai-edge/model-explorer/wiki/2.-User-Guide)
-- [Command Line Guide](https://github.com/google-ai-edge/model-explorer/wiki/3.-Command-Line-Guide)
-- [API Guide](https://github.com/google-ai-edge/model-explorer/wiki/4.-API-Guide)
-- [Run in Colab Notebook](https://github.com/google-ai-edge/model-explorer/wiki/5.-Run-in-Colab-Notebook)
-- [Develop Adapter Extension](https://github.com/google-ai-edge/model-explorer/wiki/6.-Develop-Adapter-Extension)
-- [Limitations and Known Issues](https://github.com/google-ai-edge/model-explorer/wiki/7.-Limitations-and-Known-Issues)
+- [Installation](https://github.com/LLM360/model-explorer/wiki/1.-Installation)
+- [User Guide](https://github.com/LLM360/model-explorer/wiki/2.-User-Guide)
+- [Command Line Guide](https://github.com/LLM360/model-explorer/wiki/3.-Command-Line-Guide)
+- [API Guide](https://github.com/LLM360/model-explorer/wiki/4.-API-Guide)
+- [Run in Colab Notebook](https://github.com/LLM360/model-explorer/wiki/5.-Run-in-Colab-Notebook)
+- [Develop Adapter Extension](https://github.com/LLM360/model-explorer/wiki/6.-Develop-Adapter-Extension)
+- [Limitations and Known Issues](https://github.com/LLM360/model-explorer/wiki/7.-Limitations-and-Known-Issues)
 
 We invite you to participate in research studies on Model Explorer. Sign up [here](https://docs.google.com/forms/d/e/1FAIpQLScGOkQOIKmIzkt3P0ywhSfwbl-TRb2epEV5J8NTXEesZqc3vw/viewform).
 
@@ -51,7 +51,7 @@ instructions and check out its [demos](src/custom_element_demos/).
 
 ## Contributions
 
-You are invited to create custom adapters to add support for additional model formats. Please refer to our [Develop Adapter Extension](https://github.com/google-ai-edge/model-explorer/wiki/6.-Develop-Adapter-Extension) guide. We will gladly consider pull requests to add links to your adapter's GitHub repository and PyPI package to this README.
+You are invited to create custom adapters to add support for additional model formats. Please refer to our [Develop Adapter Extension](https://github.com/LLM360/model-explorer/wiki/6.-Develop-Adapter-Extension) guide. We will gladly consider pull requests to add links to your adapter's GitHub repository and PyPI package to this README.
 
 ## Resources
 

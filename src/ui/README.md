@@ -14,7 +14,7 @@ $ npm install
 ## Run dev server
 
 First, start the Model Explorer python server locally for handling API requests.
-Check out the [Installation Guide](https://github.com/google-ai-edge/model-explorer/wiki/1.-Installation)
+Check out the [Installation Guide](https://github.com/LLM360/model-explorer/wiki/1.-Installation)
 if needed.
 
 ```
@@ -44,13 +44,13 @@ Start the python server at the port:
 $ model-explorer --port=<port_number> --no_open_in_browser
 ```
 
-Update the port number in [`src/proxy.conf.json`](https://github.com/google-ai-edge/model-explorer/blob/main/src/ui/src/proxy.conf.json),
+Update the port number in [`src/proxy.conf.json`](https://github.com/LLM360/model-explorer/blob/main/src/ui/src/proxy.conf.json),
 then start the Angular dev server.
 
 ## Run demo app without python server
 
 This Angular project also has a demo page showing the main
-[visualizer component](https://github.com/google-ai-edge/model-explorer/tree/main/src/ui/src/components/visualizer) directly. It renders the pre-converted model graph JSON files from
+[visualizer component](https://github.com/LLM360/model-explorer/tree/main/src/ui/src/components/visualizer) directly. It renders the pre-converted model graph JSON files from
 a TFLite model and a TF model. This allows you to experiment with the visualizer
 code without going through the model conversion process.
 
